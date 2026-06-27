@@ -30,4 +30,4 @@ evdev = "0.12"
 x11rb = "0.13"
 
 [target.'cfg(not(target_os = "linux"))'.dependencies]
-rdev = "0.5"
+rdev = { version = "0.5", features = ["unstable_grab"] }
