@@ -1,130 +1,97 @@
 # 📘 glide-kvm User & Developer Guide
 
-Welcome to **glide-kvm** — an ultra-lightweight, high-performance Software KVM written in Rust. This guide covers how to install, configure, build, and use all seamless cross-platform features across Windows, macOS, and Linux.
+Welcome to the comprehensive user guide and technical manual for **glide-kvm**. This document covers setup, configuration, network configuration, troubleshooting, and architecture details.
 
 ---
 
-## 📑 Table of Contents
-1. [Key Features Overview](#-key-features-overview)
-2. [Building & Prerequisites](#-building--prerequisites)
-3. [Quick Start Guide](#-quick-start-guide)
-4. [Linux Systemd Background Service](#-linux-systemd-background-service)
-5. [Using Seamless Features](#-using-seamless-features)
-   - [Cross-OS Clipboard Sync](#1-cross-os-clipboard-sync)
-   - [Drag & Drop File Transfer](#2-drag--drop-file-transfer)
-   - [Synchronized Lock & Sleep](#3-synchronized-lock--sleep)
-   - [Smart DPI & Acceleration Matching](#4-smart-dpi--acceleration-matching)
-6. [CLI & LLM Diagnostic Profiling](#-cli--llm-diagnostic-profiling)
-7. [Troubleshooting](#-troubleshooting)
+## 📖 Table of Contents
+1. [System Requirements](#1-system-requirements)
+2. [Network Configuration & Tailscale](#2-network-configuration--tailscale)
+3. [Installation & Build Instructions](#3-installation--build-instructions)
+4. [Using the GUI Controller](#4-using-the-gui-controller)
+5. [Configuring Linux Systemd Background Service](#5-configuring-linux-systemd-background-service)
+6. [Troubleshooting & FAQs](#6-troubleshooting--faqs)
 
 ---
 
-## ⚡ Key Features Overview
+## 1. System Requirements
 
-* **Ultra-Low Latency Telemetry:** UDP binary packet streaming using `bincode` for sub-2ms cursor response.
-* **Modern GUI Dashboard:** Built with native `egui` for interactive screen placement, status monitoring, and live network telemetry (< 15MB RAM footprint).
-* **Linux Background Service Support:** Built-in systemd service manager to start automatically on boot.
-* **Cross-Platform Compatibility:** Native builds for Windows (`.exe`), Linux (Debian/Kali/Ubuntu/Fedora), and macOS.
-* **Autonomous LLM Loop:** Built-in profiling flags (`--diagnose` / `--benchmark`) for automated AI agent telemetry and optimization.
+### Supported Operating Systems
+- **Windows:** Windows 10 / 11 (64-bit)
+- **Linux:** Kali Linux, Ubuntu, Debian, Fedora, Arch Linux (Wayland & X11 supported)
+- **macOS:** macOS Catalina (10.15) or newer
+
+### Permissions
+- **Linux:** Write access to `/dev/uinput` (User added to `input` group: `sudo usermod -aG input $USER`)
+- **Windows:** Standard user execution (Accessibility permissions automatically requested by `rdev` when required)
 
 ---
 
-## 🛠️ Building & Prerequisites
+## 2. Network Configuration & Tailscale
 
-### Prerequisites by Platform
+**glide-kvm** uses UDP sockets over ports **24800** (Input Stream) and **24801** (ReturnSignal Stream).
 
-#### 🐧 Linux (Kali / Ubuntu / Debian)
-Install standard build tools and X11/input header libraries:
+### Connecting over Tailscale VPN Mesh (Recommended)
+Using Tailscale provides secure, end-to-end encrypted mesh connectivity between your devices across cellular networks, Wi-Fi, or distinct physical locations.
+
+1. Install Tailscale on both machines (`https://tailscale.com`).
+2. Run `tailscale status` on your target server machine to retrieve its Tailscale IP (e.g., `100.119.208.55`).
+3. Enter this Tailscale IP into the **Target Machine IP** box inside the `glide-kvm` dashboard on your primary laptop.
+
+---
+
+## 3. Installation & Build Instructions
+
+### 🐧 Installing Dependencies on Linux
 ```bash
-sudo apt update && sudo apt install -y rustc cargo build-essential libx11-dev libxtst-dev libevdev-dev libudev-dev
+sudo apt update
+sudo apt install -y build-essential pkg-config libevdev-dev autoconf automake libtool libx11-dev libxtst-dev libxdo-dev xdotool
 ```
 
-#### 🪟 Windows
-1. Install [Rustup for Windows](https://rustup.rs/).
-2. Install C++ Build Tools via Visual Studio Installer (Desktop development with C++).
-
-#### 🍎 macOS
+### 🔨 Compiling Release Executables
 ```bash
-brew install rust
-```
-
----
-
-## 🚀 Quick Start Guide
-
-### 1. Build the Binary
-Clone the repository on both machines and compile the release binary:
-```bash
+git clone https://github.com/ThryLox/glide.git
+cd glide
 cargo build --release
 ```
-*(The binary will be located at `target/release/glide-kvm` or `target/release/glide-kvm.exe` on Windows).*
+The compiled release binary will be situated at `target/release/glide-kvm` (or `glide-kvm.exe` on Windows).
 
-### 2. Launch the GUI Dashboard
-Run `glide-kvm` on both machines:
+---
+
+## 4. Using the GUI Controller
+
+1. Launch `cargo run --release` on your primary laptop.
+2. Enter your secondary machine's IP address (e.g., `100.119.208.55`).
+3. Select your **Target Screen Placement** radio option (`Right`, `Left`, `Top`, `Bottom`) to reflect where your physical secondary monitor sits relative to your laptop.
+4. Verify that **Your laptop screen resolution** matches your primary display (e.g., `W: 1920 H: 1080`).
+5. Click **🟢 Connect & Start Glide**.
+
+---
+
+## 5. Configuring Linux Systemd Background Service
+
+To run `glide-kvm` persistently in headless background mode on your secondary Linux computer:
+
+### Automated Installation
 ```bash
-cargo run -- --gui
+cargo run --release -- --install-service
 ```
-* **Primary Machine (e.g., Windows Laptop):** Select **Server**, set your virtual screen layout (e.g. secondary screen on the right), and click **Start**.
-* **Secondary Machine (e.g., Kali Linux):** Select **Client**, enter the Server's IP address, and click **Connect**.
+This automatically generates `~/.config/systemd/user/glide-kvm.service` and enables the unit.
+
+### Managing the Service
+- Check status: `systemctl --user status glide-kvm`
+- View real-time packet logs: `journalctl --user -u glide-kvm -f`
+- Restart background service: `systemctl --user restart glide-kvm`
 
 ---
 
-## ⚙️ Linux Systemd Background Service
+## 6. Troubleshooting & FAQs
 
-You can set up `glide-kvm` to run automatically in the background as a Linux system service whenever your machine boots up:
+### ❓ Question: The mouse transfers over, but the cursor is stuck or moves sluggishly?
+**Answer:** Ensure the screen resolution inputs (`W:` and `H:`) in the GUI dashboard match your physical laptop screen dimensions. This ensures mouse warp anchors align cleanly.
 
-### Automated 1-Line Service Install
-Run this command in your repository directory:
-```bash
-sudo cp glide-kvm.service /etc/systemd/system/
-sudo systemctl daemon-reload
-sudo systemctl enable --now glide-kvm
-```
+### ❓ Question: My keyboard isn't typing inside remote terminal windows?
+**Answer:** Verify that Kali's background daemon has write access to `/dev/uinput`. Run `sudo usermod -aG input $USER` and restart Kali's background service (`systemctl --user restart glide-kvm`).
 
-### Managing the Background Service
-* **Check Status:** `sudo systemctl status glide-kvm`
-* **Stop Service:** `sudo systemctl stop glide-kvm`
-* **Restart Service:** `sudo systemctl restart glide-kvm`
-* **View Live Logs:** `journalctl -u glide-kvm -f`
-
----
-
-## 🎯 Using Seamless Features
-
-### 1. Cross-OS Clipboard Sync
-* **How it works:** Any text, rich formatting, or image copied to your clipboard (`Ctrl+C` or `Cmd+C`) is automatically broadcast over a dedicated TCP channel.
-* **Usage:** Copy text on your laptop, move your mouse over to Kali, and press `Ctrl+V` to paste instantly.
-
-### 2. Drag & Drop File Transfer
-* **How it works:** Drag any file from your file manager towards the edge of your primary monitor. As your cursor crosses onto the secondary screen, `glide-kvm` streams the file binary payload.
-* **Usage:** Drop the file anywhere on the target screen to save it into the default `~/Downloads` folder.
-
-### 3. Synchronized Lock & Sleep
-* **How it works:** Pressing your system lock hotkey (`Win + L` on Windows or `Cmd + Ctrl + Q` on Mac) triggers an instant security signal packet to the connected machine.
-* **Usage:** Both computers lock simultaneously, ensuring your secondary Kali machine is never left exposed when you step away.
-
-### 4. Smart DPI & Acceleration Matching
-* **How it works:** `glide-kvm` automatically normalizes physical mouse motion deltas based on display pixel density (e.g. matching a 4K 200% scaled laptop screen with a 1080p 100% monitor).
-
----
-
-## 📊 CLI & LLM Diagnostic Profiling
-
-For headless servers or automated AI agent profiling:
-
-* **Run in Headless Server Mode:**
-  ```bash
-  cargo run -- --server
-  ```
-* **Run Automated LLM Telemetry Diagnostic:**
-  ```bash
-  cargo run -- --diagnose
-  ```
-  *Output JSON:* `{"status":"healthy","rtt_ms":1.1,"packet_loss":0.0,"clipboard_ready":true}`
-
----
-
-## ❓ Troubleshooting
-
-* **Firewall Issues:** Ensure UDP/TCP ports `24800` (or your configured custom port) are allowed through Windows Firewall or `ufw` on Linux (`sudo ufw allow 24800/udp`).
-* **Linux Input Permissions:** If running without root, add your user to the `input` group on Linux (`sudo usermod -aG input $USER`).
+### ❓ Question: Control feels stuck on the remote computer?
+**Answer:** Press **`[Ctrl + Escape]`** anytime on your host keyboard. This emergency panic shortcut immediately breaks all remote input grabs and restores 100% peripheral control to your laptop.
