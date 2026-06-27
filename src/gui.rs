@@ -26,6 +26,7 @@ pub struct GlideGuiApp {
     runtime: Arc<tokio::runtime::Runtime>,
     active_stream: Arc<AtomicBool>,
     packet_counter: Arc<std::sync::atomic::AtomicU64>,
+    last_mouse_pos: Option<egui::Pos2>,
 }
 
 impl Default for GlideGuiApp {
@@ -41,12 +42,40 @@ impl Default for GlideGuiApp {
             runtime: Arc::new(rt),
             active_stream: Arc::new(AtomicBool::new(false)),
             packet_counter: Arc::new(std::sync::atomic::AtomicU64::new(0)),
+            last_mouse_pos: None,
         }
     }
 }
 
 impl eframe::App for GlideGuiApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        // Real-time pointer tracking inside GUI window
+        if self.connected {
+            if let Some(current_pos) = ctx.pointer_latest_pos() {
+                if let Some(last_pos) = self.last_mouse_pos {
+                    let dx = (current_pos.x - last_pos.x) as i32;
+                    let dy = (current_pos.y - last_pos.y) as i32;
+                    if dx != 0 || dy != 0 {
+                        let target_str = format!("{}:24800", self.target_ip.trim());
+                        if let Ok(addr) = target_str.parse::<SocketAddr>() {
+                            let counter = self.packet_counter.clone();
+                            self.runtime.spawn(async move {
+                                if let Ok(socket) = UdpSocket::bind("0.0.0.0:0").await {
+                                    let event = InputEvent::MouseMove { x: dx, y: dy };
+                                    if let Ok(bytes) = bincode::serialize(&event) {
+                                        if socket.send_to(&bytes, addr).await.is_ok() {
+                                            counter.fetch_add(1, Ordering::SeqCst);
+                                        }
+                                    }
+                                }
+                            });
+                        }
+                    }
+                }
+                self.last_mouse_pos = Some(current_pos);
+            }
+        }
+
         egui::CentralPanel::default().show(ctx, |ui| {
             ui.heading("⚡ glide-kvm Dashboard");
             ui.separator();
@@ -77,35 +106,6 @@ impl eframe::App for GlideGuiApp {
                         self.connected = true;
                         self.active_stream.store(true, Ordering::SeqCst);
                         self.packet_counter.store(0, Ordering::SeqCst);
-                        let target_str = format!("{}:24800", self.target_ip.trim());
-                        let pos = self.screen_pos;
-                        if let Ok(addr) = target_str.parse::<SocketAddr>() {
-                            info!("Initiating network connection to {} with position {:?}", addr, pos);
-                            let active_flag = self.active_stream.clone();
-                            let counter = self.packet_counter.clone();
-                            self.runtime.spawn(async move {
-                                if let Ok(socket) = UdpSocket::bind("0.0.0.0:0").await {
-                                    let mut step: i32 = 0;
-                                    while active_flag.load(Ordering::SeqCst) {
-                                        // Generate wide sweeping deltas so cursor movement is prominently visible across screen center
-                                        let (dx, dy) = match pos {
-                                            ScreenPosition::Left => (if step % 2 == 0 { -80 } else { 80 }, if step % 4 == 0 { -40 } else { 40 }),
-                                            ScreenPosition::Right => (if step % 2 == 0 { 80 } else { -80 }, if step % 4 == 0 { -40 } else { 40 }),
-                                            ScreenPosition::Top => (if step % 4 == 0 { -40 } else { 40 }, if step % 2 == 0 { -80 } else { 80 }),
-                                            ScreenPosition::Bottom => (if step % 4 == 0 { -40 } else { 40 }, if step % 2 == 0 { 80 } else { -80 }),
-                                        };
-                                        let event = InputEvent::MouseMove { x: dx, y: dy };
-                                        if let Ok(bytes) = bincode::serialize(&event) {
-                                            if socket.send_to(&bytes, addr).await.is_ok() {
-                                                counter.fetch_add(1, Ordering::SeqCst);
-                                            }
-                                        }
-                                        tokio::time::sleep(Duration::from_millis(100)).await;
-                                        step += 1;
-                                    }
-                                }
-                            });
-                        }
                     }
                 }
             });
@@ -118,12 +118,12 @@ impl eframe::App for GlideGuiApp {
             ui.separator();
             ui.heading("📊 Live Network Telemetry");
             let packets = self.packet_counter.load(Ordering::SeqCst);
-            ui.label(format!("Status: {}", if self.connected { "Streaming Telemetry 🟢" } else { "Disconnected ⚪" }));
+            ui.label(format!("Status: {}", if self.connected { "Streaming Real User Input 🟢" } else { "Disconnected ⚪" }));
             ui.label("Average Latency: 1.1 ms");
             ui.label(format!("Packets Sent: {}", packets));
 
             if self.connected {
-                ctx.request_repaint();
+                ctx.request_repaint_after(Duration::from_millis(16));
             }
         });
     }
