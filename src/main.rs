@@ -10,10 +10,10 @@ use tracing::info;
 #[command(author, version, about = "Ultra-low latency Rust Software KVM", long_about = None)]
 struct Args {
     /// Launch the interactive GUI dashboard
-    #[arg(short, long, default_value_t = true)]
+    #[arg(short, long)]
     gui: bool,
 
-    /// Run as background server node
+    /// Run as headless background server node
     #[arg(short, long)]
     server: bool,
 
@@ -39,12 +39,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     info!("Starting glide-kvm v{}", env!("CARGO_PKG_VERSION"));
 
-    if args.gui {
+    // If --gui is explicitly requested AND --server is not set, launch GUI
+    if args.gui && !args.server {
         if let Err(e) = gui::run_gui() {
             eprintln!("GUI Error: {}", e);
         }
     } else {
-        info!("Running in headless CLI mode.");
+        info!("Running in headless background server mode on port 24800...");
+        // Keep main thread alive in background server mode
+        tokio::signal::ctrl_c().await?;
+        info!("Shutdown signal received, exiting glide-kvm.");
     }
 
     Ok(())
