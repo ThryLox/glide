@@ -7,7 +7,7 @@ use tokio::net::UdpSocket;
 use crate::protocol::InputEvent;
 
 #[cfg(not(target_os = "linux"))]
-use rdev::{listen, Event, EventType, Key};
+use rdev::{listen, Event, EventType, Key, Button};
 
 #[derive(PartialEq, Clone, Copy, Debug)]
 pub enum ScreenPosition {
@@ -51,7 +51,7 @@ impl Default for GlideGuiApp {
 
 impl eframe::App for GlideGuiApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        // Emergency escape hotkey check in GUI context (e.g. Esc key or Ctrl+Alt+S)
+        // Emergency escape hotkey check in GUI context
         ctx.input(|i| {
             if i.key_pressed(egui::Key::Escape) && i.modifiers.ctrl {
                 self.connected = false;
@@ -84,13 +84,13 @@ impl eframe::App for GlideGuiApp {
                     self.last_mouse_pos = Some(current_pos);
                 }
 
-                // Track left mouse button clicks
+                // Track left, right, and middle mouse button clicks & dragging
                 ctx.input(|i| {
-                    if i.pointer.primary_pressed() {
+                    let mut send_btn = |btn: u8, pressed: bool| {
                         let counter = self.packet_counter.clone();
                         self.runtime.spawn(async move {
                             if let Ok(socket) = UdpSocket::bind("0.0.0.0:0").await {
-                                let event = InputEvent::MouseButton { button: 1, pressed: true };
+                                let event = InputEvent::MouseButton { button: btn, pressed };
                                 if let Ok(bytes) = bincode::serialize(&event) {
                                     if socket.send_to(&bytes, addr).await.is_ok() {
                                         counter.fetch_add(1, Ordering::SeqCst);
@@ -98,19 +98,14 @@ impl eframe::App for GlideGuiApp {
                                 }
                             }
                         });
-                    } else if i.pointer.primary_released() {
-                        let counter = self.packet_counter.clone();
-                        self.runtime.spawn(async move {
-                            if let Ok(socket) = UdpSocket::bind("0.0.0.0:0").await {
-                                let event = InputEvent::MouseButton { button: 1, pressed: false };
-                                if let Ok(bytes) = bincode::serialize(&event) {
-                                    if socket.send_to(&bytes, addr).await.is_ok() {
-                                        counter.fetch_add(1, Ordering::SeqCst);
-                                    }
-                                }
-                            }
-                        });
-                    }
+                    };
+
+                    if i.pointer.primary_pressed() { send_btn(1, true); }
+                    if i.pointer.primary_released() { send_btn(1, false); }
+                    if i.pointer.secondary_pressed() { send_btn(3, true); }
+                    if i.pointer.secondary_released() { send_btn(3, false); }
+                    if i.pointer.middle_pressed() { send_btn(2, true); }
+                    if i.pointer.middle_released() { send_btn(2, false); }
 
                     // Track scroll wheel events
                     let scroll_delta = i.raw_scroll_delta;
@@ -178,8 +173,37 @@ impl eframe::App for GlideGuiApp {
                                         }
                                         match event.event_type {
                                             EventType::KeyPress(Key::Escape) => {
-                                                // Emergency Escape Hotkey triggered!
                                                 active_flag.store(false, Ordering::SeqCst);
+                                            }
+                                            EventType::ButtonPress(btn) => {
+                                                let button_id = match btn {
+                                                    Button::Left => 1,
+                                                    Button::Middle => 2,
+                                                    Button::Right => 3,
+                                                    _ => 1,
+                                                };
+                                                let ev = InputEvent::MouseButton { button: button_id, pressed: true };
+                                                if let Ok(bytes) = bincode::serialize(&ev) {
+                                                    if let Ok(sock) = std::net::UdpSocket::bind("0.0.0.0:0") {
+                                                        let _ = sock.send_to(&bytes, addr);
+                                                        counter.fetch_add(1, Ordering::SeqCst);
+                                                    }
+                                                }
+                                            }
+                                            EventType::ButtonRelease(btn) => {
+                                                let button_id = match btn {
+                                                    Button::Left => 1,
+                                                    Button::Middle => 2,
+                                                    Button::Right => 3,
+                                                    _ => 1,
+                                                };
+                                                let ev = InputEvent::MouseButton { button: button_id, pressed: false };
+                                                if let Ok(bytes) = bincode::serialize(&ev) {
+                                                    if let Ok(sock) = std::net::UdpSocket::bind("0.0.0.0:0") {
+                                                        let _ = sock.send_to(&bytes, addr);
+                                                        counter.fetch_add(1, Ordering::SeqCst);
+                                                    }
+                                                }
                                             }
                                             EventType::MouseMove { x, y } => {
                                                 let dx = (x - last_x) as i32;
