@@ -49,15 +49,15 @@ impl Default for GlideGuiApp {
 
 impl eframe::App for GlideGuiApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        // Real-time pointer tracking inside GUI window
         if self.connected {
-            if let Some(current_pos) = ctx.pointer_latest_pos() {
-                if let Some(last_pos) = self.last_mouse_pos {
-                    let dx = (current_pos.x - last_pos.x) as i32;
-                    let dy = (current_pos.y - last_pos.y) as i32;
-                    if dx != 0 || dy != 0 {
-                        let target_str = format!("{}:24800", self.target_ip.trim());
-                        if let Ok(addr) = target_str.parse::<SocketAddr>() {
+            let target_str = format!("{}:24800", self.target_ip.trim());
+            if let Ok(addr) = target_str.parse::<SocketAddr>() {
+                // Track pointer motion
+                if let Some(current_pos) = ctx.pointer_latest_pos() {
+                    if let Some(last_pos) = self.last_mouse_pos {
+                        let dx = (current_pos.x - last_pos.x) as i32;
+                        let dy = (current_pos.y - last_pos.y) as i32;
+                        if dx != 0 || dy != 0 {
                             let counter = self.packet_counter.clone();
                             self.runtime.spawn(async move {
                                 if let Ok(socket) = UdpSocket::bind("0.0.0.0:0").await {
@@ -71,8 +71,53 @@ impl eframe::App for GlideGuiApp {
                             });
                         }
                     }
+                    self.last_mouse_pos = Some(current_pos);
                 }
-                self.last_mouse_pos = Some(current_pos);
+
+                // Track left mouse button clicks
+                ctx.input(|i| {
+                    if i.pointer.primary_pressed() {
+                        let counter = self.packet_counter.clone();
+                        self.runtime.spawn(async move {
+                            if let Ok(socket) = UdpSocket::bind("0.0.0.0:0").await {
+                                let event = InputEvent::MouseButton { button: 1, pressed: true };
+                                if let Ok(bytes) = bincode::serialize(&event) {
+                                    if socket.send_to(&bytes, addr).await.is_ok() {
+                                        counter.fetch_add(1, Ordering::SeqCst);
+                                    }
+                                }
+                            }
+                        });
+                    } else if i.pointer.primary_released() {
+                        let counter = self.packet_counter.clone();
+                        self.runtime.spawn(async move {
+                            if let Ok(socket) = UdpSocket::bind("0.0.0.0:0").await {
+                                let event = InputEvent::MouseButton { button: 1, pressed: false };
+                                if let Ok(bytes) = bincode::serialize(&event) {
+                                    if socket.send_to(&bytes, addr).await.is_ok() {
+                                        counter.fetch_add(1, Ordering::SeqCst);
+                                    }
+                                }
+                            }
+                        });
+                    }
+
+                    // Track scroll wheel events
+                    let scroll_delta = i.raw_scroll_delta;
+                    if scroll_delta.y != 0.0 {
+                        let counter = self.packet_counter.clone();
+                        self.runtime.spawn(async move {
+                            if let Ok(socket) = UdpSocket::bind("0.0.0.0:0").await {
+                                let event = InputEvent::Scroll { delta_x: scroll_delta.x, delta_y: scroll_delta.y };
+                                if let Ok(bytes) = bincode::serialize(&event) {
+                                    if socket.send_to(&bytes, addr).await.is_ok() {
+                                        counter.fetch_add(1, Ordering::SeqCst);
+                                    }
+                                }
+                            }
+                        });
+                    }
+                });
             }
         }
 
