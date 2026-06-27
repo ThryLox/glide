@@ -16,28 +16,28 @@ use std::process::Command;
 #[cfg(target_os = "linux")]
 lazy_static::lazy_static! {
     static ref VIRTUAL_MOUSE: Mutex<Option<evdev::uinput::VirtualDevice>> = {
-        let mut keys = AttributeSet::new();
-        keys.insert(evdev::Key::BTN_LEFT);
-        keys.insert(evdev::Key::BTN_RIGHT);
-        keys.insert(evdev::Key::BTN_MIDDLE);
+        let dev = (|| -> std::io::Result<evdev::uinput::VirtualDevice> {
+            let mut keys = AttributeSet::new();
+            keys.insert(evdev::Key::BTN_LEFT);
+            keys.insert(evdev::Key::BTN_RIGHT);
+            keys.insert(evdev::Key::BTN_MIDDLE);
 
-        let mut rel_axes = AttributeSet::new();
-        rel_axes.insert(RelativeAxisType::REL_X);
-        rel_axes.insert(RelativeAxisType::REL_Y);
+            let mut rel_axes = AttributeSet::new();
+            rel_axes.insert(RelativeAxisType::REL_X);
+            rel_axes.insert(RelativeAxisType::REL_Y);
 
-        let dev = match VirtualDeviceBuilder::new() {
-            Ok(builder) => builder
+            VirtualDeviceBuilder::new()?
                 .name("glide-kvm Virtual Mouse")
-                .with_keys(&keys)
-                .unwrap_or(builder)
-                .with_relative_axes(&rel_axes)
-                .unwrap_or(builder)
+                .with_keys(&keys)?
+                .with_relative_axes(&rel_axes)?
                 .build()
-                .ok(),
-            Err(_) => None,
-        };
+        })();
+
+        if dev.is_err() {
+            info!("Kernel /dev/uinput virtual device creation skipped or permission denied. Operating in Xwayland/Mutter fallback mode.");
+        }
         
-        Mutex::new(dev)
+        Mutex::new(dev.ok())
     };
 }
 
