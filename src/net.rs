@@ -7,7 +7,7 @@ use crate::protocol::InputEvent;
 #[cfg(target_os = "linux")]
 use evdev::uinput::VirtualDeviceBuilder;
 #[cfg(target_os = "linux")]
-use evdev::{Attribute, RelativeAxisType, EventType, InputEvent as EvdevEvent};
+use evdev::{AttributeSet, RelativeAxisType, EventType, InputEvent as EvdevEvent};
 #[cfg(target_os = "linux")]
 use std::sync::Mutex;
 #[cfg(target_os = "linux")]
@@ -16,12 +16,12 @@ use std::process::Command;
 #[cfg(target_os = "linux")]
 lazy_static::lazy_static! {
     static ref VIRTUAL_MOUSE: Mutex<Option<evdev::uinput::VirtualDevice>> = {
-        let mut keys = evdev::AttributeSet::new();
+        let mut keys = AttributeSet::new();
         keys.insert(evdev::Key::BTN_LEFT);
         keys.insert(evdev::Key::BTN_RIGHT);
         keys.insert(evdev::Key::BTN_MIDDLE);
 
-        let mut rel_axes = evdev::AttributeSet::new();
+        let mut rel_axes = AttributeSet::new();
         rel_axes.insert(RelativeAxisType::REL_X);
         rel_axes.insert(RelativeAxisType::REL_Y);
 
