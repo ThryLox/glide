@@ -168,7 +168,7 @@ impl NetworkEngine {
             CURSOR_X.store(w / 2, Ordering::SeqCst);
             CURSOR_Y.store(h / 2, Ordering::SeqCst);
             // Trigger lazy_static initialization at startup
-            let _ = VIRTUAL_DEVICE.lock();
+            drop(VIRTUAL_DEVICE.lock());
         }
 
         Ok(Self { socket })
