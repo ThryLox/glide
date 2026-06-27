@@ -6,6 +6,9 @@ After=network.target
 Type=simple
 User=thrylox
 WorkingDirectory=/home/thrylox/glide-kvm
+Environment=DISPLAY=:0
+Environment=XAUTHORITY=/home/thrylox/.Xauthority
+Environment=HOME=/home/thrylox
 ExecStart=/home/thrylox/glide-kvm/target/release/glide-kvm --server
 Restart=always
 RestartSec=3

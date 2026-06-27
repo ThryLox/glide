@@ -18,6 +18,7 @@ impl NetworkEngine {
         Ok(Self { socket })
     }
 
+    #[allow(dead_code)]
     pub async fn send_event(&self, event: &InputEvent, target: SocketAddr) -> Result<()> {
         let bytes = bincode::serialize(event)?;
         self.socket.send_to(&bytes, target).await?;
@@ -47,9 +48,11 @@ impl NetworkEngine {
         {
             match event {
                 InputEvent::MouseMove { x, y } => {
-                    // Simulate mouse movement on Linux screen using xdotool
+                    // Simulate mouse movement on Linux screen using xdotool with full X11 auth env
                     let _ = Command::new("xdotool")
                         .env("DISPLAY", ":0")
+                        .env("XAUTHORITY", "/home/thrylox/.Xauthority")
+                        .env("HOME", "/home/thrylox")
                         .args(["mousemove_relative", "--", &x.to_string(), &y.to_string()])
                         .spawn();
                 }
@@ -57,6 +60,8 @@ impl NetworkEngine {
                     let action = if *pressed { "mousedown" } else { "mouseup" };
                     let _ = Command::new("xdotool")
                         .env("DISPLAY", ":0")
+                        .env("XAUTHORITY", "/home/thrylox/.Xauthority")
+                        .env("HOME", "/home/thrylox")
                         .args([action, &button.to_string()])
                         .spawn();
                 }
@@ -64,6 +69,8 @@ impl NetworkEngine {
                     let action = if *pressed { "keydown" } else { "keyup" };
                     let _ = Command::new("xdotool")
                         .env("DISPLAY", ":0")
+                        .env("XAUTHORITY", "/home/thrylox/.Xauthority")
+                        .env("HOME", "/home/thrylox")
                         .args([action, &key_code.to_string()])
                         .spawn();
                 }
