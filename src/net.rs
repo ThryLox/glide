@@ -5,7 +5,38 @@ use tracing::{info, error};
 use crate::protocol::InputEvent;
 
 #[cfg(target_os = "linux")]
+use evdev::uinput::VirtualDeviceBuilder;
+#[cfg(target_os = "linux")]
+use evdev::{Attribute, RelativeAxisType, EventType, InputEvent as EvdevEvent};
+#[cfg(target_os = "linux")]
+use std::sync::Mutex;
+#[cfg(target_os = "linux")]
 use std::process::Command;
+
+#[cfg(target_os = "linux")]
+lazy_static::lazy_static! {
+    static ref VIRTUAL_MOUSE: Mutex<Option<evdev::uinput::VirtualDevice>> = {
+        let mut keys = evdev::AttributeSet::new();
+        keys.insert(evdev::Key::BTN_LEFT);
+        keys.insert(evdev::Key::BTN_RIGHT);
+        keys.insert(evdev::Key::BTN_MIDDLE);
+
+        let mut rel_axes = evdev::AttributeSet::new();
+        rel_axes.insert(RelativeAxisType::REL_X);
+        rel_axes.insert(RelativeAxisType::REL_Y);
+
+        let dev = VirtualDeviceBuilder::new()
+            .unwrap()
+            .name("glide-kvm Virtual Mouse")
+            .with_keys(&keys)
+            .unwrap()
+            .with_relative_axes(&rel_axes)
+            .unwrap()
+            .build();
+        
+        Mutex::new(dev.ok())
+    };
+}
 
 pub struct NetworkEngine {
     socket: UdpSocket,
@@ -47,38 +78,23 @@ impl NetworkEngine {
     fn simulate_os_input(event: &InputEvent) {
         #[cfg(target_os = "linux")]
         {
-            let display = std::env::var("DISPLAY").unwrap_or_else(|_| ":0".to_string());
-            let xauth = std::env::var("XAUTHORITY").unwrap_or_else(|_| {
-                let default_path = "/home/thrylox/.Xauthority";
-                if std::path::Path::new(default_path).exists() {
-                    default_path.to_string()
-                } else {
-                    "/run/user/1000/gdm/Xauthority".to_string()
-                }
-            });
-
             match event {
                 InputEvent::MouseMove { x, y } => {
+                    if let Ok(mut guard) = VIRTUAL_MOUSE.lock() {
+                        if let Some(ref mut dev) = *guard {
+                            let ev_x = EvdevEvent::new(EventType::RELATIVE, RelativeAxisType::REL_X.0, *x);
+                            let ev_y = EvdevEvent::new(EventType::RELATIVE, RelativeAxisType::REL_Y.0, *y);
+                            let _ = dev.emit(&[ev_x, ev_y]);
+                            return;
+                        }
+                    }
+                    
+                    // Fallback to xdotool with Mutter Wayland auth
+                    let display = std::env::var("DISPLAY").unwrap_or_else(|_| ":0".to_string());
                     let _ = Command::new("xdotool")
                         .env("DISPLAY", &display)
-                        .env("XAUTHORITY", &xauth)
+                        .env("XAUTHORITY", "/run/user/1000/.mutter-Xwaylandauth.4QFTR3")
                         .args(["mousemove_relative", "--", &x.to_string(), &y.to_string()])
-                        .spawn();
-                }
-                InputEvent::MouseButton { button, pressed } => {
-                    let action = if *pressed { "mousedown" } else { "mouseup" };
-                    let _ = Command::new("xdotool")
-                        .env("DISPLAY", &display)
-                        .env("XAUTHORITY", &xauth)
-                        .args([action, &button.to_string()])
-                        .spawn();
-                }
-                InputEvent::KeyPress { key_code, pressed } => {
-                    let action = if *pressed { "keydown" } else { "keyup" };
-                    let _ = Command::new("xdotool")
-                        .env("DISPLAY", &display)
-                        .env("XAUTHORITY", &xauth)
-                        .args([action, &key_code.to_string()])
                         .spawn();
                 }
                 _ => {}
