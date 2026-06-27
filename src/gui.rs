@@ -104,8 +104,8 @@ impl eframe::App for GlideGuiApp {
                     if i.pointer.primary_released() { send_btn(1, false); }
                     if i.pointer.secondary_pressed() { send_btn(3, true); }
                     if i.pointer.secondary_released() { send_btn(3, false); }
-                    if i.pointer.middle_pressed() { send_btn(2, true); }
-                    if i.pointer.middle_released() { send_btn(2, false); }
+                    if i.pointer.button_pressed(egui::PointerButton::Middle) { send_btn(2, true); }
+                    if i.pointer.button_released(egui::PointerButton::Middle) { send_btn(2, false); }
 
                     // Track scroll wheel events
                     let scroll_delta = i.raw_scroll_delta;
