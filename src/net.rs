@@ -75,29 +75,16 @@ fn xdotool_name_to_evdev(name: &str) -> Option<Key> {
 
 #[cfg(target_os = "linux")]
 lazy_static::lazy_static! {
-    static ref VIRTUAL_MOUSE: Mutex<Option<evdev::uinput::VirtualDevice>> = {
+    // Unified Virtual Hardware Device containing Mouse + Keyboard keys
+    static ref VIRTUAL_DEVICE: Mutex<Option<evdev::uinput::VirtualDevice>> = {
         let dev = (|| -> std::io::Result<evdev::uinput::VirtualDevice> {
             let mut keys = AttributeSet::new();
+            // Mouse buttons
             keys.insert(Key::BTN_LEFT);
             keys.insert(Key::BTN_RIGHT);
             keys.insert(Key::BTN_MIDDLE);
-            let mut rel_axes = AttributeSet::new();
-            rel_axes.insert(RelativeAxisType::REL_X);
-            rel_axes.insert(RelativeAxisType::REL_Y);
-            rel_axes.insert(RelativeAxisType::REL_WHEEL);
-            VirtualDeviceBuilder::new()?
-                .name("glide-kvm Virtual Mouse")
-                .with_keys(&keys)?
-                .with_relative_axes(&rel_axes)?
-                .build()
-        })();
-        if dev.is_err() { info!("Virtual mouse: /dev/uinput unavailable, falling back to xdotool"); }
-        Mutex::new(dev.ok())
-    };
-
-    static ref VIRTUAL_KEYBOARD: Mutex<Option<evdev::uinput::VirtualDevice>> = {
-        let dev = (|| -> std::io::Result<evdev::uinput::VirtualDevice> {
-            let mut keys = AttributeSet::new();
+            
+            // Letters
             for k in [Key::KEY_A,Key::KEY_B,Key::KEY_C,Key::KEY_D,Key::KEY_E,Key::KEY_F,
                       Key::KEY_G,Key::KEY_H,Key::KEY_I,Key::KEY_J,Key::KEY_K,Key::KEY_L,
                       Key::KEY_M,Key::KEY_N,Key::KEY_O,Key::KEY_P,Key::KEY_Q,Key::KEY_R,
@@ -118,12 +105,23 @@ lazy_static::lazy_static! {
                       Key::KEY_SLASH,Key::KEY_MINUS,Key::KEY_EQUAL,Key::KEY_GRAVE] {
                 keys.insert(k);
             }
+
+            let mut rel_axes = AttributeSet::new();
+            rel_axes.insert(RelativeAxisType::REL_X);
+            rel_axes.insert(RelativeAxisType::REL_Y);
+            rel_axes.insert(RelativeAxisType::REL_WHEEL);
+
             VirtualDeviceBuilder::new()?
-                .name("glide-kvm Virtual Keyboard")
+                .name("glide-kvm Unified Input")
                 .with_keys(&keys)?
+                .with_relative_axes(&rel_axes)?
                 .build()
         })();
-        if dev.is_err() { info!("Virtual keyboard: /dev/uinput unavailable, falling back to xdotool"); }
+        if dev.is_err() {
+            info!("Unified Virtual Device: /dev/uinput build failed, falling back to xdotool");
+        } else {
+            info!("Unified Virtual Device successfully registered via /dev/uinput");
+        }
         Mutex::new(dev.ok())
     };
 
@@ -169,6 +167,8 @@ impl NetworkEngine {
             let (w, h) = get_screen_size();
             CURSOR_X.store(w / 2, Ordering::SeqCst);
             CURSOR_Y.store(h / 2, Ordering::SeqCst);
+            // Trigger lazy_static initialization at startup
+            let _ = VIRTUAL_DEVICE.lock();
         }
 
         Ok(Self { socket })
@@ -271,7 +271,7 @@ impl NetworkEngine {
         #[cfg(target_os = "linux")]
         match event {
             InputEvent::MouseMove { x, y } => {
-                if let Ok(mut g) = VIRTUAL_MOUSE.lock() {
+                if let Ok(mut g) = VIRTUAL_DEVICE.lock() {
                     if let Some(ref mut dev) = *g {
                         let ex = EvdevEvent::new(EventType::RELATIVE, RelativeAxisType::REL_X.0, *x);
                         let ey = EvdevEvent::new(EventType::RELATIVE, RelativeAxisType::REL_Y.0, *y);
@@ -286,7 +286,7 @@ impl NetworkEngine {
                 Self::xdotool(&["mousemove", &x.to_string(), &y.to_string()]);
             }
             InputEvent::MouseButton { button, pressed } => {
-                if let Ok(mut g) = VIRTUAL_MOUSE.lock() {
+                if let Ok(mut g) = VIRTUAL_DEVICE.lock() {
                     if let Some(ref mut dev) = *g {
                         let k = match button { 1 => Key::BTN_LEFT, 2 => Key::BTN_MIDDLE, _ => Key::BTN_RIGHT };
                         let ev = EvdevEvent::new(EventType::KEY, k.0, if *pressed { 1 } else { 0 });
@@ -298,7 +298,7 @@ impl NetworkEngine {
                 Self::xdotool(&[if *pressed { "mousedown" } else { "mouseup" }, &button.to_string()]);
             }
             InputEvent::Scroll { delta_y, .. } => {
-                if let Ok(mut g) = VIRTUAL_MOUSE.lock() {
+                if let Ok(mut g) = VIRTUAL_DEVICE.lock() {
                     if let Some(ref mut dev) = *g {
                         let ev = EvdevEvent::new(EventType::RELATIVE, RelativeAxisType::REL_WHEEL.0, *delta_y as i32);
                         let sync = EvdevEvent::new(EventType::SYNCHRONIZATION, 0, 0);
@@ -310,7 +310,7 @@ impl NetworkEngine {
             }
             InputEvent::KeyName { name, pressed } => {
                 if let Some(evdev_key) = xdotool_name_to_evdev(name) {
-                    if let Ok(mut g) = VIRTUAL_KEYBOARD.lock() {
+                    if let Ok(mut g) = VIRTUAL_DEVICE.lock() {
                         if let Some(ref mut dev) = *g {
                             let val = if *pressed { 1 } else { 0 };
                             let ev   = EvdevEvent::new(EventType::KEY, evdev_key.0, val);
