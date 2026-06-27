@@ -155,6 +155,15 @@ impl NetworkEngine {
                         .args([action, &key_code.to_string()])
                         .spawn();
                 }
+                InputEvent::KeyName { name, pressed } => {
+                    let action = if *pressed { "keydown" } else { "keyup" };
+                    let display = std::env::var("DISPLAY").unwrap_or_else(|_| ":0".to_string());
+                    let _ = Command::new("xdotool")
+                        .env("DISPLAY", &display)
+                        .env("XAUTHORITY", "/run/user/1000/.mutter-Xwaylandauth.4QFTR3")
+                        .args([action, name.as_str()])
+                        .spawn();
+                }
                 _ => {}
             }
         }

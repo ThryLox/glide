@@ -4,7 +4,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 #[cfg(not(target_os = "linux"))]
-use rdev::{grab, Event, EventType, Key, Button};
+use rdev::{grab, simulate, Event, EventType, Key, Button};
 #[cfg(not(target_os = "linux"))]
 use std::cell::Cell;
 
@@ -16,13 +16,10 @@ pub enum ScreenPosition {
     Bottom,
 }
 
-/// Shared KVM state:
-/// on_remote=false → Windows has exclusive control
-/// on_remote=true  → Kali has exclusive control, Windows sees NOTHING
 struct KvmState {
-    on_remote: AtomicBool,   // is control currently on Kali?
-    screen_width: AtomicI32, // laptop screen width in pixels
-    screen_height: AtomicI32,// laptop screen height in pixels
+    on_remote: AtomicBool,
+    screen_width: AtomicI32,
+    screen_height: AtomicI32,
 }
 
 pub struct GlideGuiApp {
@@ -55,7 +52,6 @@ impl Default for GlideGuiApp {
     }
 }
 
-/// Send a UDP packet to the Kali server
 fn udp_send(addr: std::net::SocketAddr, event: &crate::protocol::InputEvent, counter: &Arc<std::sync::atomic::AtomicU64>) {
     if let Ok(bytes) = bincode::serialize(event) {
         if let Ok(sock) = std::net::UdpSocket::bind("0.0.0.0:0") {
@@ -65,9 +61,46 @@ fn udp_send(addr: std::net::SocketAddr, event: &crate::protocol::InputEvent, cou
     }
 }
 
+/// Map rdev Key to an xdotool-compatible key name string
+#[cfg(not(target_os = "linux"))]
+fn key_to_xdotool(k: &Key) -> Option<String> {
+    let name = match k {
+        Key::KeyA => "a", Key::KeyB => "b", Key::KeyC => "c", Key::KeyD => "d",
+        Key::KeyE => "e", Key::KeyF => "f", Key::KeyG => "g", Key::KeyH => "h",
+        Key::KeyI => "i", Key::KeyJ => "j", Key::KeyK => "k", Key::KeyL => "l",
+        Key::KeyM => "m", Key::KeyN => "n", Key::KeyO => "o", Key::KeyP => "p",
+        Key::KeyQ => "q", Key::KeyR => "r", Key::KeyS => "s", Key::KeyT => "t",
+        Key::KeyU => "u", Key::KeyV => "v", Key::KeyW => "w", Key::KeyX => "x",
+        Key::KeyY => "y", Key::KeyZ => "z",
+        Key::Num0 => "0", Key::Num1 => "1", Key::Num2 => "2", Key::Num3 => "3",
+        Key::Num4 => "4", Key::Num5 => "5", Key::Num6 => "6", Key::Num7 => "7",
+        Key::Num8 => "8", Key::Num9 => "9",
+        Key::Return => "Return", Key::BackSpace => "BackSpace", Key::Tab => "Tab",
+        Key::Space => "space", Key::Delete => "Delete", Key::Insert => "Insert",
+        Key::Home => "Home", Key::End => "End",
+        Key::PageUp => "Prior", Key::PageDown => "Next",
+        Key::UpArrow => "Up", Key::DownArrow => "Down",
+        Key::LeftArrow => "Left", Key::RightArrow => "Right",
+        Key::F1 => "F1", Key::F2 => "F2", Key::F3 => "F3", Key::F4 => "F4",
+        Key::F5 => "F5", Key::F6 => "F6", Key::F7 => "F7", Key::F8 => "F8",
+        Key::F9 => "F9", Key::F10 => "F10", Key::F11 => "F11", Key::F12 => "F12",
+        Key::ShiftLeft | Key::ShiftRight => "shift",
+        Key::ControlLeft | Key::ControlRight => "ctrl",
+        Key::Alt => "alt",
+        Key::MetaLeft | Key::MetaRight => "super",
+        Key::CapsLock => "Caps_Lock",
+        Key::Comma => "comma", Key::Dot => "period", Key::SemiColon => "semicolon",
+        Key::Quote => "apostrophe", Key::LeftBracket => "bracketleft",
+        Key::RightBracket => "bracketright", Key::BackSlash => "backslash",
+        Key::Slash => "slash", Key::Minus => "minus", Key::Equal => "equal",
+        Key::BackQuote => "grave", Key::Escape => "Escape",
+        _ => return None,
+    };
+    Some(name.to_string())
+}
+
 impl eframe::App for GlideGuiApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        // Emergency escape hotkey: Ctrl+Esc always brings control back to Windows
         ctx.input(|i| {
             if i.key_pressed(egui::Key::Escape) && i.modifiers.ctrl {
                 self.kvm_state.on_remote.store(false, Ordering::SeqCst);
@@ -102,7 +135,6 @@ impl eframe::App for GlideGuiApp {
                 } else {
                     ui.label("🔵 Control is on LAPTOP — move mouse to boundary edge to switch to Kali");
                 }
-
                 if ui.button("🔴 Disconnect  (or Ctrl+Esc anytime)").clicked() {
                     self.connected = false;
                     self.active_stream.store(false, Ordering::SeqCst);
@@ -130,7 +162,7 @@ impl eframe::App for GlideGuiApp {
             let packets = self.packet_counter.load(Ordering::SeqCst);
             let on_remote = self.kvm_state.on_remote.load(Ordering::SeqCst);
             ui.label(format!("Status: {}", match (self.connected, on_remote) {
-                (false, _) => "Disconnected ⚪",
+                (false, _)    => "Disconnected ⚪",
                 (true, false) => "Connected — Laptop has control 🔵",
                 (true, true)  => "Connected — Kali has control 🟠",
             }));
@@ -150,68 +182,71 @@ impl GlideGuiApp {
         let target_str = format!("{}:24800", self.target_ip.trim());
         let Ok(addr) = target_str.parse::<std::net::SocketAddr>() else { return; };
 
-        let active_flag  = self.active_stream.clone();
-        let counter      = self.packet_counter.clone();
-        let kvm          = self.kvm_state.clone();
-        let screen_pos   = self.screen_pos;
+        let active_flag = self.active_stream.clone();
+        let counter     = self.packet_counter.clone();
+        let kvm         = self.kvm_state.clone();
+        let screen_pos  = self.screen_pos;
 
         std::thread::spawn(move || {
-            // Cell gives interior mutability so the closure implements Fn (not FnMut),
-            // which is required by rdev::grab.
-            let last_x: Cell<f64> = Cell::new(0.0);
-            let last_y: Cell<f64> = Cell::new(0.0);
+            // Cell<f64> gives interior mutability — required so closure is Fn not FnMut
+            // (rdev::grab requires Fn)
+            let warp_cx: Cell<f64> = Cell::new(0.0);
+            let warp_cy: Cell<f64> = Cell::new(0.0);
+            let is_warping: Cell<bool> = Cell::new(false);
 
-            // rdev::grab intercepts every OS-level hardware event.
-            // Return Some(event) → Windows still processes it normally.
-            // Return None        → Windows NEVER sees it (fully consumed).
+            // Detect screen dimensions via first mouse event
+            let sw = kvm.screen_width.load(Ordering::SeqCst) as f64;
+            let sh = kvm.screen_height.load(Ordering::SeqCst) as f64;
+            // Warp anchor is the center of the screen
+            warp_cx.set(sw / 2.0);
+            warp_cy.set(sh / 2.0);
+
             let callback = move |event: Event| -> Option<Event> {
                 if !active_flag.load(Ordering::SeqCst) {
-                    // Session disconnected — always pass through
-                    return Some(event);
+                    return Some(event); // Disconnected: pass everything through
                 }
 
                 let on_remote = kvm.on_remote.load(Ordering::SeqCst);
-                let sw = kvm.screen_width.load(Ordering::SeqCst) as f64;
-                let sh = kvm.screen_height.load(Ordering::SeqCst) as f64;
 
-                match event.event_type {
+                match &event.event_type {
 
-                    // ── Escape: emergency return to Windows ──────────────────
+                    // ── Emergency escape: always return to Windows ───────────
                     EventType::KeyPress(Key::Escape) => {
                         if on_remote {
                             kvm.on_remote.store(false, Ordering::SeqCst);
                         }
-                        // Still pass Escape through so Windows sees it
                         return Some(event);
                     }
 
-                    // ── All keyboard events ──────────────────────────────────
+                    // ── Keyboard: only route to Kali when remote ─────────────
                     EventType::KeyPress(k) => {
                         if on_remote {
-                            let key_code = format!("{:?}", k).len() as u32;
-                            let ev = crate::protocol::InputEvent::KeyPress { key_code, pressed: true };
-                            udp_send(addr, &ev, &counter);
+                            if let Some(name) = key_to_xdotool(k) {
+                                let ev = crate::protocol::InputEvent::KeyName { name, pressed: true };
+                                udp_send(addr, &ev, &counter);
+                            }
                             return None; // Suppress from Windows
                         }
-                        return Some(event); // Windows keeps it
+                        return Some(event);
                     }
                     EventType::KeyRelease(k) => {
                         if on_remote {
-                            let key_code = format!("{:?}", k).len() as u32;
-                            let ev = crate::protocol::InputEvent::KeyPress { key_code, pressed: false };
-                            udp_send(addr, &ev, &counter);
+                            if let Some(name) = key_to_xdotool(k) {
+                                let ev = crate::protocol::InputEvent::KeyName { name, pressed: false };
+                                udp_send(addr, &ev, &counter);
+                            }
                             return None;
                         }
                         return Some(event);
                     }
 
-                    // ── All mouse button clicks ──────────────────────────────
+                    // ── Mouse buttons: only route to Kali when remote ────────
                     EventType::ButtonPress(btn) => {
                         if on_remote {
                             let button_id = match btn { Button::Left => 1, Button::Middle => 2, Button::Right => 3, _ => 1 };
                             let ev = crate::protocol::InputEvent::MouseButton { button: button_id, pressed: true };
                             udp_send(addr, &ev, &counter);
-                            return None; // Suppress from Windows
+                            return None;
                         }
                         return Some(event);
                     }
@@ -225,38 +260,58 @@ impl GlideGuiApp {
                         return Some(event);
                     }
 
-                    // ── Mouse movement: boundary detection + delta streaming ─
+                    // ── Mouse movement ───────────────────────────────────────
                     EventType::MouseMove { x, y } => {
-                        let dx = (x - last_x.get()) as i32;
-                        let dy = (y - last_y.get()) as i32;
+                        let x = *x;
+                        let y = *y;
+                        let sw = kvm.screen_width.load(Ordering::SeqCst) as f64;
+                        let sh = kvm.screen_height.load(Ordering::SeqCst) as f64;
+                        let cx = warp_cx.get();
+                        let cy = warp_cy.get();
+
+                        // Ignore synthetic warp events we generate ourselves
+                        if is_warping.get() {
+                            return None;
+                        }
 
                         if on_remote {
-                            // We are on Kali. Check if user moved back past return boundary.
-                            let returned = match screen_pos {
-                                ScreenPosition::Right  => x < sw * 0.02,  // moved back to left edge
-                                ScreenPosition::Left   => x > sw * 0.98,  // moved back to right edge
-                                ScreenPosition::Top    => y > sh * 0.98,  // moved back to bottom
-                                ScreenPosition::Bottom => y < sh * 0.02,  // moved back to top
+                            // --- REMOTE MODE ---
+                            // Compute delta from warp anchor (center of screen)
+                            let dx = (x - cx) as i32;
+                            let dy = (y - cy) as i32;
+
+                            // Check if the user is pushing the cursor back past the return boundary
+                            let return_triggered = match screen_pos {
+                                ScreenPosition::Right  => dx < -80,  // strong push leftward
+                                ScreenPosition::Left   => dx > 80,   // strong push rightward
+                                ScreenPosition::Top    => dy > 80,   // strong push downward
+                                ScreenPosition::Bottom => dy < -80,  // strong push upward
                             };
 
-                            if returned {
+                            if return_triggered {
                                 kvm.on_remote.store(false, Ordering::SeqCst);
-                                last_x.set(x);
-                                last_y.set(y);
-                                return Some(event); // Return cursor to Windows
+                                // Warp cursor to center so return is clean
+                                is_warping.set(true);
+                                let _ = simulate(&EventType::MouseMove { x: cx, y: cy });
+                                is_warping.set(false);
+                                return None;
                             }
 
-                            // Still on Kali — stream delta, suppress from Windows
+                            // Stream delta to Kali
                             if dx != 0 || dy != 0 {
                                 let ev = crate::protocol::InputEvent::MouseMove { x: dx, y: dy };
                                 udp_send(addr, &ev, &counter);
                             }
-                            last_x.set(x);
-                            last_y.set(y);
-                            return None; // Windows cursor stays pinned at edge
+
+                            // Warp cursor back to anchor so we always get fresh deltas
+                            is_warping.set(true);
+                            let _ = simulate(&EventType::MouseMove { x: cx, y: cy });
+                            is_warping.set(false);
+                            return None; // Suppress the original move from Windows
 
                         } else {
-                            // We are on Windows. Check if user hit the boundary edge.
+                            // --- HOST MODE ---
+                            // Check if cursor hit the boundary edge
                             let at_boundary = match screen_pos {
                                 ScreenPosition::Right  => x >= sw - 2.0,
                                 ScreenPosition::Left   => x <= 1.0,
@@ -266,14 +321,13 @@ impl GlideGuiApp {
 
                             if at_boundary {
                                 kvm.on_remote.store(true, Ordering::SeqCst);
-                                last_x.set(x);
-                                last_y.set(y);
-                                // Suppress this event — Windows cursor stays pinned at edge
+                                // Warp to center to give clean delta origin
+                                is_warping.set(true);
+                                let _ = simulate(&EventType::MouseMove { x: cx, y: cy });
+                                is_warping.set(false);
                                 return None;
                             }
 
-                            last_x.set(x);
-                            last_y.set(y);
                             return Some(event); // Normal Windows movement
                         }
                     }

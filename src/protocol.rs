@@ -7,6 +7,7 @@ pub enum InputEvent {
     MouseMoveAbsolute { x: i32, y: i32 },
     MouseButton { button: u8, pressed: bool },
     KeyPress { key_code: u32, pressed: bool },
+    KeyName { name: String, pressed: bool },  // xdotool-compatible key name
     Scroll { delta_x: f32, delta_y: f32 },
     LockState { locked: bool },
 }
