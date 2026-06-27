@@ -52,15 +52,6 @@ impl Default for GlideGuiApp {
     }
 }
 
-fn udp_send(addr: std::net::SocketAddr, event: &crate::protocol::InputEvent, counter: &Arc<std::sync::atomic::AtomicU64>) {
-    if let Ok(bytes) = bincode::serialize(event) {
-        if let Ok(sock) = std::net::UdpSocket::bind("0.0.0.0:0") {
-            let _ = sock.send_to(&bytes, addr);
-            counter.fetch_add(1, Ordering::SeqCst);
-        }
-    }
-}
-
 /// Map rdev Key to an xdotool-compatible key name string
 #[cfg(not(target_os = "linux"))]
 fn key_to_xdotool(k: &Key) -> Option<String> {
@@ -101,6 +92,7 @@ fn key_to_xdotool(k: &Key) -> Option<String> {
 
 impl eframe::App for GlideGuiApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        // Ctrl+Escape: emergency return to laptop
         ctx.input(|i| {
             if i.key_pressed(egui::Key::Escape) && i.modifiers.ctrl {
                 self.kvm_state.on_remote.store(false, Ordering::SeqCst);
@@ -120,7 +112,6 @@ impl eframe::App for GlideGuiApp {
 
             ui.separator();
 
-            // Screen resolution config so warping uses correct center coords
             ui.horizontal(|ui| {
                 ui.label("Your laptop screen resolution:");
                 let mut sw = self.kvm_state.screen_width.load(Ordering::SeqCst);
@@ -141,12 +132,23 @@ impl eframe::App for GlideGuiApp {
             });
 
             ui.separator();
+
+            // Hotkey legend
+            ui.group(|ui| {
+                ui.label("⌨️ KVM Hotkeys:");
+                ui.label("  [Scroll Lock]   — toggle focus between Laptop ↔ Kali");
+                ui.label("  [Ctrl + Alt + G] — switch focus to Kali");
+                ui.label("  [Ctrl + Escape]  — emergency return to Laptop");
+            });
+
+            ui.separator();
+
             if self.connected {
                 let on_remote = self.kvm_state.on_remote.load(Ordering::SeqCst);
                 if on_remote {
-                    ui.label("🟠 Control → KALI  (push cursor strongly back past boundary to return)");
+                    ui.label("🟠 Control → KALI  (Scroll Lock or push cursor past boundary to return)");
                 } else {
-                    ui.label("🔵 Control → LAPTOP  (move cursor to boundary edge to switch to Kali)");
+                    ui.label("🔵 Control → LAPTOP  (Scroll Lock, Ctrl+Alt+G, or move cursor to edge)");
                 }
                 if ui.button("🔴 Disconnect  (or Ctrl+Esc)").clicked() {
                     self.connected = false;
@@ -166,7 +168,6 @@ impl eframe::App for GlideGuiApp {
 
             ui.separator();
             ui.heading("⚙️ Settings");
-            ui.label("🚨 Emergency: [Ctrl + Escape] → instantly returns control to laptop");
             ui.checkbox(&mut self.clipboard_sync, "📋 Cross-OS Clipboard Sync");
             ui.checkbox(&mut self.file_transfer_enabled, "📁 Drag & Drop File Transfer");
 
@@ -179,7 +180,7 @@ impl eframe::App for GlideGuiApp {
                 (true, false) => "Connected — Laptop has control 🔵",
                 (true, true)  => "Connected — Kali has control 🟠",
             }));
-            ui.label("Average Latency: 1.1 ms");
+            ui.label("Average Latency: ~1 ms");
             ui.label(format!("Packets Sent: {}", packets));
 
             if self.connected {
@@ -201,24 +202,42 @@ impl GlideGuiApp {
         let screen_pos  = self.screen_pos;
 
         std::thread::spawn(move || {
-            // Warp anchor = screen center. All remote-mode deltas are measured from here.
+            // One persistent UDP socket reused for all packets — eliminates per-event socket overhead
+            let socket = match std::net::UdpSocket::bind("0.0.0.0:0") {
+                Ok(s) => Arc::new(s),
+                Err(_) => return,
+            };
+
+            let send_event = {
+                let socket = socket.clone();
+                let counter = counter.clone();
+                move |ev: &crate::protocol::InputEvent| {
+                    if let Ok(bytes) = bincode::serialize(ev) {
+                        let _ = socket.send_to(&bytes, addr);
+                        counter.fetch_add(1, Ordering::SeqCst);
+                    }
+                }
+            };
+
             let sw = kvm.screen_width.load(Ordering::SeqCst) as f64;
             let sh = kvm.screen_height.load(Ordering::SeqCst) as f64;
             let cx: Cell<f64> = Cell::new(sw / 2.0);
             let cy: Cell<f64> = Cell::new(sh / 2.0);
 
-            // pending_warp stores the coordinates of the synthetic warp event we just fired.
-            // Set to (-1,-1) when no warp is pending.
-            // When the next MouseMove arrives matching these coords, we know it's our warp
-            // and suppress it — this avoids the timing race of a boolean is_warping flag.
+            // pending_warp: coordinate of synthetic warp we fired.
+            // Matching event is passed through (Some) so cursor actually moves, but state
+            // machine skips processing it as a real move.
             let pending_warp_x: Cell<f64> = Cell::new(-1.0);
             let pending_warp_y: Cell<f64> = Cell::new(-1.0);
 
-            let do_warp = |target_x: f64, target_y: f64,
-                           pwx: &Cell<f64>, pwy: &Cell<f64>| {
-                pwx.set(target_x);
-                pwy.set(target_y);
-                let _ = simulate(&EventType::MouseMove { x: target_x, y: target_y });
+            // Modifier key tracking for Ctrl+Alt+G hotkey
+            let ctrl_held:  Cell<bool> = Cell::new(false);
+            let alt_held:   Cell<bool> = Cell::new(false);
+
+            let do_warp = |tx: f64, ty: f64, pwx: &Cell<f64>, pwy: &Cell<f64>| {
+                pwx.set(tx);
+                pwy.set(ty);
+                let _ = simulate(&EventType::MouseMove { x: tx, y: ty });
             };
 
             let callback = move |event: Event| -> Option<Event> {
@@ -229,20 +248,63 @@ impl GlideGuiApp {
                 let on_remote = kvm.on_remote.load(Ordering::SeqCst);
                 let sw = kvm.screen_width.load(Ordering::SeqCst) as f64;
                 let sh = kvm.screen_height.load(Ordering::SeqCst) as f64;
+                let anchor_x = cx.get();
+                let anchor_y = cy.get();
 
                 match &event.event_type {
 
-                    // ── Emergency escape ─────────────────────────────────────
-                    EventType::KeyPress(Key::Escape) => {
+                    // ── Modifier tracking ────────────────────────────────────
+                    EventType::KeyPress(Key::ControlLeft) | EventType::KeyPress(Key::ControlRight) => {
+                        ctrl_held.set(true);
+                        if on_remote { send_event(&crate::protocol::InputEvent::KeyName { name: "ctrl".into(), pressed: true }); return None; }
+                        return Some(event);
+                    }
+                    EventType::KeyRelease(Key::ControlLeft) | EventType::KeyRelease(Key::ControlRight) => {
+                        ctrl_held.set(false);
+                        if on_remote { send_event(&crate::protocol::InputEvent::KeyName { name: "ctrl".into(), pressed: false }); return None; }
+                        return Some(event);
+                    }
+                    EventType::KeyPress(Key::Alt) | EventType::KeyPress(Key::AltGr) => {
+                        alt_held.set(true);
+                        if on_remote { send_event(&crate::protocol::InputEvent::KeyName { name: "alt".into(), pressed: true }); return None; }
+                        return Some(event);
+                    }
+                    EventType::KeyRelease(Key::Alt) | EventType::KeyRelease(Key::AltGr) => {
+                        alt_held.set(false);
+                        if on_remote { send_event(&crate::protocol::InputEvent::KeyName { name: "alt".into(), pressed: false }); return None; }
+                        return Some(event);
+                    }
+
+                    // ── KVM Switch Hotkeys ───────────────────────────────────
+                    // Scroll Lock: toggle focus Laptop ↔ Kali (classic KVM key)
+                    EventType::KeyPress(Key::ScrollLock) => {
+                        let now_remote = !on_remote;
+                        kvm.on_remote.store(now_remote, Ordering::SeqCst);
+                        if now_remote {
+                            // Switching TO Kali: warp cursor to center so deltas start clean
+                            do_warp(anchor_x, anchor_y, &pending_warp_x, &pending_warp_y);
+                        }
+                        return None; // Never pass Scroll Lock through to either OS
+                    }
+
+                    // Ctrl+Alt+G: switch TO Kali
+                    EventType::KeyPress(Key::KeyG) if ctrl_held.get() && alt_held.get() => {
+                        kvm.on_remote.store(true, Ordering::SeqCst);
+                        do_warp(anchor_x, anchor_y, &pending_warp_x, &pending_warp_y);
+                        return None;
+                    }
+
+                    // ── Emergency escape: always return to Laptop ────────────
+                    EventType::KeyPress(Key::Escape) if ctrl_held.get() => {
                         kvm.on_remote.store(false, Ordering::SeqCst);
                         return Some(event);
                     }
 
-                    // ── Keyboard: route to Kali when remote, suppress Windows ─
+                    // ── Keyboard: route to Kali when remote ─────────────────
                     EventType::KeyPress(k) => {
                         if on_remote {
                             if let Some(name) = key_to_xdotool(k) {
-                                udp_send(addr, &crate::protocol::InputEvent::KeyName { name, pressed: true }, &counter);
+                                send_event(&crate::protocol::InputEvent::KeyName { name, pressed: true });
                             }
                             return None;
                         }
@@ -251,7 +313,7 @@ impl GlideGuiApp {
                     EventType::KeyRelease(k) => {
                         if on_remote {
                             if let Some(name) = key_to_xdotool(k) {
-                                udp_send(addr, &crate::protocol::InputEvent::KeyName { name, pressed: false }, &counter);
+                                send_event(&crate::protocol::InputEvent::KeyName { name, pressed: false });
                             }
                             return None;
                         }
@@ -262,7 +324,7 @@ impl GlideGuiApp {
                     EventType::ButtonPress(btn) => {
                         if on_remote {
                             let b = match btn { Button::Left => 1, Button::Middle => 2, Button::Right => 3, _ => 1 };
-                            udp_send(addr, &crate::protocol::InputEvent::MouseButton { button: b, pressed: true }, &counter);
+                            send_event(&crate::protocol::InputEvent::MouseButton { button: b, pressed: true });
                             return None;
                         }
                         return Some(event);
@@ -270,7 +332,7 @@ impl GlideGuiApp {
                     EventType::ButtonRelease(btn) => {
                         if on_remote {
                             let b = match btn { Button::Left => 1, Button::Middle => 2, Button::Right => 3, _ => 1 };
-                            udp_send(addr, &crate::protocol::InputEvent::MouseButton { button: b, pressed: false }, &counter);
+                            send_event(&crate::protocol::InputEvent::MouseButton { button: b, pressed: false });
                             return None;
                         }
                         return Some(event);
@@ -282,28 +344,21 @@ impl GlideGuiApp {
                         let y = *y;
                         let pwx = pending_warp_x.get();
                         let pwy = pending_warp_y.get();
-                        let anchor_x = cx.get();
-                        let anchor_y = cy.get();
 
-                        // ── Detect and discard our own synthetic warp event ───
-                        // Compare within 2px tolerance to account for float rounding.
-                        // Return Some(event) so Windows ACTUALLY moves the cursor to center —
-                        // without this the cursor never reaches the anchor and all deltas are wrong.
+                        // Our synthetic warp arriving — let Windows process it (moves cursor
+                        // to anchor) but skip it in our state machine
                         if pwx >= 0.0 && (x - pwx).abs() < 2.0 && (y - pwy).abs() < 2.0 {
                             pending_warp_x.set(-1.0);
                             pending_warp_y.set(-1.0);
-                            return Some(event); // Let Windows move cursor to anchor, but don't process as real move
+                            return Some(event);
                         }
 
                         if on_remote {
-                            // ── REMOTE MODE ───────────────────────────────────
-                            // Delta is measured from warp anchor (center of screen).
-                            // Since we warp back to center after every move,
-                            // dx/dy are exactly the hardware movement values.
+                            // Delta from warp anchor (screen center)
                             let dx = (x - anchor_x) as i32;
                             let dy = (y - anchor_y) as i32;
 
-                            // Return to laptop when user pushes cursor hard in reverse
+                            // Return to laptop: strong push back past the return boundary
                             let return_triggered = match screen_pos {
                                 ScreenPosition::Right  => dx < -60,
                                 ScreenPosition::Left   => dx >  60,
@@ -313,23 +368,21 @@ impl GlideGuiApp {
 
                             if return_triggered {
                                 kvm.on_remote.store(false, Ordering::SeqCst);
-                                // Warp back to center for clean re-entry
                                 do_warp(anchor_x, anchor_y, &pending_warp_x, &pending_warp_y);
                                 return None;
                             }
 
-                            // Stream real hardware delta to Kali
+                            // Stream delta to Kali
                             if dx != 0 || dy != 0 {
-                                udp_send(addr, &crate::protocol::InputEvent::MouseMove { x: dx, y: dy }, &counter);
+                                send_event(&crate::protocol::InputEvent::MouseMove { x: dx, y: dy });
                             }
 
-                            // Warp cursor back to anchor so the NEXT event gives fresh deltas
+                            // Warp back to anchor for fresh deltas next event
                             do_warp(anchor_x, anchor_y, &pending_warp_x, &pending_warp_y);
-                            return None; // Suppress original move from Windows
+                            return None;
 
                         } else {
-                            // ── HOST MODE ─────────────────────────────────────
-                            // Update anchor center in case resolution setting changed
+                            // Update anchor if screen size changed
                             cx.set(sw / 2.0);
                             cy.set(sh / 2.0);
 
@@ -342,12 +395,11 @@ impl GlideGuiApp {
 
                             if at_boundary {
                                 kvm.on_remote.store(true, Ordering::SeqCst);
-                                // Warp to center so deltas start from a clean origin
                                 do_warp(cx.get(), cy.get(), &pending_warp_x, &pending_warp_y);
                                 return None;
                             }
 
-                            return Some(event); // Normal Windows movement
+                            return Some(event);
                         }
                     }
 
@@ -363,7 +415,7 @@ impl GlideGuiApp {
 pub fn run_gui() -> eframe::Result<()> {
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
-            .with_inner_size([500.0, 500.0]),
+            .with_inner_size([500.0, 520.0]),
         ..Default::default()
     };
     eframe::run_native(
