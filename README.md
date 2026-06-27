@@ -15,18 +15,19 @@
 
 ---
 
-## 🚀 Getting Started
+## 📘 Documentation & Guides
+Check out our comprehensive **[User & Developer How-To Guide](file:///home/thrylox/glide-kvm/USAGE_GUIDE.md)** for detailed installation, OS prerequisites, and feature walk-throughs!
 
-### Prerequisites
-- Rust & Cargo (v1.75+)
-- Linux dependencies: `libx11-dev`, `libxtst-dev`, `libevdev-dev`, `libudev-dev`
+---
+
+## 🚀 Quick Start
 
 ### Building from Source
 ```bash
 cargo build --release
 ```
 
-### Running
+### Running the GUI Dashboard
 ```bash
 cargo run -- --gui
 ```
