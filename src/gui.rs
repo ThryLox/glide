@@ -75,7 +75,7 @@ fn key_to_xdotool(k: &Key) -> Option<String> {
         Key::Num0 => "0", Key::Num1 => "1", Key::Num2 => "2", Key::Num3 => "3",
         Key::Num4 => "4", Key::Num5 => "5", Key::Num6 => "6", Key::Num7 => "7",
         Key::Num8 => "8", Key::Num9 => "9",
-        Key::Return => "Return", Key::BackSpace => "BackSpace", Key::Tab => "Tab",
+        Key::Return => "Return", Key::Backspace => "BackSpace", Key::Tab => "Tab",
         Key::Space => "space", Key::Delete => "Delete", Key::Insert => "Insert",
         Key::Home => "Home", Key::End => "End",
         Key::PageUp => "Prior", Key::PageDown => "Next",
