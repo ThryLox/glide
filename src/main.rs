@@ -26,7 +26,7 @@ struct Args {
     #[arg(long)]
     diagnose: bool,
 
-    /// Install as automatic systemd background service (Linux)
+    /// Install as automatic user systemd background service (Linux)
     #[arg(long)]
     install_service: bool,
 }
@@ -39,31 +39,31 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     if args.install_service {
         #[cfg(target_os = "linux")]
         {
-            info!("Installing glide-kvm systemd background service...");
+            info!("Installing glide-kvm systemd user background service...");
             let service_content = format!(r#"[Unit]
 Description=glide-kvm Ultra-Low Latency Background Service
-After=network.target
+After=graphical-session.target
 
 [Service]
 Type=simple
-User={}
 ExecStart={}/target/release/glide-kvm --server
 Restart=always
 RestartSec=3
 
 [Install]
-WantedBy=multi-user.target
+WantedBy=default.target
 "#, 
-                std::env::var("USER").unwrap_or_else(|_| "root".to_string()),
                 std::env::current_dir()?.display()
             );
 
-            let service_path = "/etc/systemd/system/glide-kvm.service";
-            println!("Writing systemd service file to {}...", service_path);
-            println!("Run the following command with sudo to activate:");
-            println!("\n  echo '{}' | sudo tee {} > /dev/null", service_content.replace('\n', "\\n"), service_path);
-            println!("  sudo systemctl daemon-reload");
-            println!("  sudo systemctl enable --now glide-kvm\n");
+            let user_dir = format!("{}/.config/systemd/user", std::env::var("HOME").unwrap_or_else(|_| "/home/thrylox".to_string()));
+            let _ = std::fs::create_dir_all(&user_dir);
+            let service_path = format!("{}/glide-kvm.service", user_dir);
+            std::fs::write(&service_path, service_content)?;
+            println!("Installed user systemd service to {}!", service_path);
+            println!("Run the following commands to activate:");
+            println!("\n  systemctl --user daemon-reload");
+            println!("  systemctl --user enable --now glide-kvm\n");
             return Ok(());
         }
 
