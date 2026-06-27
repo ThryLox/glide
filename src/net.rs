@@ -15,15 +15,10 @@ use std::sync::atomic::{AtomicI32, AtomicU8, Ordering};
 #[cfg(target_os = "linux")]
 use std::process::Command;
 
-// side encoding: 0=Right,1=Left,2=Top,3=Bottom (Kali is on which side of laptop)
-// When Kali is to the Right → the return edge is the LEFT edge of Kali (x ≤ 0)
-// When Kali is to the Left  → return edge = RIGHT edge (x ≥ screen_w)
-// When Kali is to the Top   → return edge = BOTTOM edge (y ≥ screen_h)
-// When Kali is to the Bottom→ return edge = TOP edge (y ≤ 0)
-
 #[cfg(target_os = "linux")]
 fn xdotool_name_to_evdev(name: &str) -> Option<Key> {
-    match name {
+    let lower = name.to_lowercase();
+    match lower.as_str() {
         "a" => Some(Key::KEY_A), "b" => Some(Key::KEY_B), "c" => Some(Key::KEY_C),
         "d" => Some(Key::KEY_D), "e" => Some(Key::KEY_E), "f" => Some(Key::KEY_F),
         "g" => Some(Key::KEY_G), "h" => Some(Key::KEY_H), "i" => Some(Key::KEY_I),
@@ -37,43 +32,43 @@ fn xdotool_name_to_evdev(name: &str) -> Option<Key> {
         "3" => Some(Key::KEY_3), "4" => Some(Key::KEY_4), "5" => Some(Key::KEY_5),
         "6" => Some(Key::KEY_6), "7" => Some(Key::KEY_7), "8" => Some(Key::KEY_8),
         "9" => Some(Key::KEY_9),
-        "Return"    => Some(Key::KEY_ENTER),
-        "BackSpace" => Some(Key::KEY_BACKSPACE),
-        "Tab"       => Some(Key::KEY_TAB),
-        "space"     => Some(Key::KEY_SPACE),
-        "Delete"    => Some(Key::KEY_DELETE),
-        "Insert"    => Some(Key::KEY_INSERT),
-        "Home"      => Some(Key::KEY_HOME),
-        "End"       => Some(Key::KEY_END),
-        "Prior"     => Some(Key::KEY_PAGEUP),
-        "Next"      => Some(Key::KEY_PAGEDOWN),
-        "Up"        => Some(Key::KEY_UP),
-        "Down"      => Some(Key::KEY_DOWN),
-        "Left"      => Some(Key::KEY_LEFT),
-        "Right"     => Some(Key::KEY_RIGHT),
-        "F1"  => Some(Key::KEY_F1),  "F2"  => Some(Key::KEY_F2),
-        "F3"  => Some(Key::KEY_F3),  "F4"  => Some(Key::KEY_F4),
-        "F5"  => Some(Key::KEY_F5),  "F6"  => Some(Key::KEY_F6),
-        "F7"  => Some(Key::KEY_F7),  "F8"  => Some(Key::KEY_F8),
-        "F9"  => Some(Key::KEY_F9),  "F10" => Some(Key::KEY_F10),
-        "F11" => Some(Key::KEY_F11), "F12" => Some(Key::KEY_F12),
-        "shift"     => Some(Key::KEY_LEFTSHIFT),
-        "ctrl"      => Some(Key::KEY_LEFTCTRL),
-        "alt"       => Some(Key::KEY_LEFTALT),
-        "super"     => Some(Key::KEY_LEFTMETA),
-        "Caps_Lock" => Some(Key::KEY_CAPSLOCK),
-        "Escape"    => Some(Key::KEY_ESC),
-        "comma"     => Some(Key::KEY_COMMA),
-        "period"    => Some(Key::KEY_DOT),
-        "semicolon" => Some(Key::KEY_SEMICOLON),
-        "apostrophe"=> Some(Key::KEY_APOSTROPHE),
-        "bracketleft"  => Some(Key::KEY_LEFTBRACE),
-        "bracketright" => Some(Key::KEY_RIGHTBRACE),
-        "backslash" => Some(Key::KEY_BACKSLASH),
-        "slash"     => Some(Key::KEY_SLASH),
-        "minus"     => Some(Key::KEY_MINUS),
-        "equal"     => Some(Key::KEY_EQUAL),
-        "grave"     => Some(Key::KEY_GRAVE),
+        "return" | "enter" => Some(Key::KEY_ENTER),
+        "backspace"       => Some(Key::KEY_BACKSPACE),
+        "tab"             => Some(Key::KEY_TAB),
+        "space"           => Some(Key::KEY_SPACE),
+        "delete"          => Some(Key::KEY_DELETE),
+        "insert"          => Some(Key::KEY_INSERT),
+        "home"            => Some(Key::KEY_HOME),
+        "end"             => Some(Key::KEY_END),
+        "prior" | "pageup"=> Some(Key::KEY_PAGEUP),
+        "next" | "pagedown" => Some(Key::KEY_PAGEDOWN),
+        "up"              => Some(Key::KEY_UP),
+        "down"            => Some(Key::KEY_DOWN),
+        "left"            => Some(Key::KEY_LEFT),
+        "right"           => Some(Key::KEY_RIGHT),
+        "f1"  => Some(Key::KEY_F1),  "f2"  => Some(Key::KEY_F2),
+        "f3"  => Some(Key::KEY_F3),  "f4"  => Some(Key::KEY_F4),
+        "f5"  => Some(Key::KEY_F5),  "f6"  => Some(Key::KEY_F6),
+        "f7"  => Some(Key::KEY_F7),  "f8"  => Some(Key::KEY_F8),
+        "f9"  => Some(Key::KEY_F9),  "f10" => Some(Key::KEY_F10),
+        "f11" => Some(Key::KEY_F11), "f12" => Some(Key::KEY_F12),
+        "shift" | "shiftleft" | "shiftright" => Some(Key::KEY_LEFTSHIFT),
+        "ctrl" | "controlleft" | "controlright" => Some(Key::KEY_LEFTCTRL),
+        "alt" | "altgr"   => Some(Key::KEY_LEFTALT),
+        "super" | "meta"  => Some(Key::KEY_LEFTMETA),
+        "caps_lock" | "capslock" => Some(Key::KEY_CAPSLOCK),
+        "escape" | "esc"  => Some(Key::KEY_ESC),
+        "comma" | ","     => Some(Key::KEY_COMMA),
+        "period" | "."    => Some(Key::KEY_DOT),
+        "semicolon" | ";" => Some(Key::KEY_SEMICOLON),
+        "apostrophe" | "'" => Some(Key::KEY_APOSTROPHE),
+        "bracketleft" | "["  => Some(Key::KEY_LEFTBRACE),
+        "bracketright" | "]" => Some(Key::KEY_RIGHTBRACE),
+        "backslash" | "\\" => Some(Key::KEY_BACKSLASH),
+        "slash" | "/"     => Some(Key::KEY_SLASH),
+        "minus" | "-"     => Some(Key::KEY_MINUS),
+        "equal" | "="     => Some(Key::KEY_EQUAL),
+        "grave" | "`"     => Some(Key::KEY_GRAVE),
         _ => None,
     }
 }
@@ -132,18 +127,12 @@ lazy_static::lazy_static! {
         Mutex::new(dev.ok())
     };
 
-    // Kali cursor position (tracked by accumulating incoming deltas)
     static ref CURSOR_X: AtomicI32 = AtomicI32::new(960);
     static ref CURSOR_Y: AtomicI32 = AtomicI32::new(540);
-
-    // Which side of the laptop Kali lives on (0=Right,1=Left,2=Top,3=Bottom)
     static ref KALI_SIDE: AtomicU8 = AtomicU8::new(0);
-
-    // Last client address — used to send ReturnToHost back
     static ref LAST_CLIENT: Mutex<Option<SocketAddr>> = Mutex::new(None);
 }
 
-/// Get Kali screen dimensions via xdotool getdisplaygeometry
 #[cfg(target_os = "linux")]
 fn get_screen_size() -> (i32, i32) {
     let xauth = std::env::var("XAUTHORITY").unwrap_or_default();
@@ -175,7 +164,6 @@ impl NetworkEngine {
         let socket = UdpSocket::bind(addr).await?;
         info!("Glide-KVM UDP Engine bound on {}", addr);
 
-        // Detect Kali screen size at startup
         #[cfg(target_os = "linux")]
         {
             let (w, h) = get_screen_size();
@@ -205,7 +193,6 @@ impl NetworkEngine {
         loop {
             match self.socket.recv_from(&mut buf).await {
                 Ok((len, addr)) => {
-                    // Store the client address for sending ReturnToHost back
                     #[cfg(target_os = "linux")]
                     {
                         if let Ok(mut guard) = LAST_CLIENT.lock() {
@@ -216,7 +203,6 @@ impl NetworkEngine {
                     if let Ok(event) = bincode::deserialize::<InputEvent>(&buf[..len]) {
                         info!("Received input event from {}: {:?}", addr, event);
 
-                        // Handle SetLayout before dispatching to OS input
                         #[cfg(target_os = "linux")]
                         if let InputEvent::SetLayout { side } = &event {
                             KALI_SIDE.store(*side, Ordering::SeqCst);
@@ -224,13 +210,11 @@ impl NetworkEngine {
                             continue;
                         }
 
-                        // Check if cursor has hit the return edge after this move
                         #[cfg(target_os = "linux")]
                         if let InputEvent::MouseMove { x, y } = &event {
                             let cx = CURSOR_X.fetch_add(*x, Ordering::SeqCst) + x;
                             let cy = CURSOR_Y.fetch_add(*y, Ordering::SeqCst) + y;
 
-                            // Clamp to screen bounds
                             let cx = cx.max(0).min(screen_w);
                             let cy = cy.max(0).min(screen_h);
                             CURSOR_X.store(cx, Ordering::SeqCst);
@@ -238,19 +222,17 @@ impl NetworkEngine {
 
                             let side = KALI_SIDE.load(Ordering::SeqCst);
                             let at_return_edge = match side {
-                                0 => cx <= 2,              // Kali is RIGHT of laptop → return edge is LEFT of Kali
-                                1 => cx >= screen_w - 2,   // Kali is LEFT  → return edge is RIGHT
-                                2 => cy >= screen_h - 2,   // Kali is TOP   → return edge is BOTTOM
-                                3 => cy <= 2,              // Kali is BOTTOM→ return edge is TOP
+                                0 => cx <= 2,
+                                1 => cx >= screen_w - 2,
+                                2 => cy >= screen_h - 2,
+                                3 => cy <= 2,
                                 _ => false,
                             };
 
                             if at_return_edge {
                                 info!("Cursor hit return edge at ({}, {}) — sending ReturnToHost", cx, cy);
-                                // Send ReturnToHost back to Windows client
                                 if let Ok(guard) = LAST_CLIENT.lock() {
                                     if let Some(client_addr) = *guard {
-                                        // Send to client on port 24801 (return channel)
                                         let mut return_addr = client_addr;
                                         return_addr.set_port(24801);
                                         if let Ok(bytes) = bincode::serialize(&InputEvent::ReturnToHost) {
@@ -259,7 +241,6 @@ impl NetworkEngine {
                                         }
                                     }
                                 }
-                                // Reset cursor to center after returning
                                 CURSOR_X.store(screen_w / 2, Ordering::SeqCst);
                                 CURSOR_Y.store(screen_h / 2, Ordering::SeqCst);
                             }
@@ -294,7 +275,8 @@ impl NetworkEngine {
                     if let Some(ref mut dev) = *g {
                         let ex = EvdevEvent::new(EventType::RELATIVE, RelativeAxisType::REL_X.0, *x);
                         let ey = EvdevEvent::new(EventType::RELATIVE, RelativeAxisType::REL_Y.0, *y);
-                        let _ = dev.emit(&[ex, ey]);
+                        let sync = EvdevEvent::new(EventType::SYNCHRONIZATION, 0, 0);
+                        let _ = dev.emit(&[ex, ey, sync]);
                         return;
                     }
                 }
@@ -308,7 +290,8 @@ impl NetworkEngine {
                     if let Some(ref mut dev) = *g {
                         let k = match button { 1 => Key::BTN_LEFT, 2 => Key::BTN_MIDDLE, _ => Key::BTN_RIGHT };
                         let ev = EvdevEvent::new(EventType::KEY, k.0, if *pressed { 1 } else { 0 });
-                        let _ = dev.emit(&[ev]);
+                        let sync = EvdevEvent::new(EventType::SYNCHRONIZATION, 0, 0);
+                        let _ = dev.emit(&[ev, sync]);
                         return;
                     }
                 }
@@ -318,7 +301,8 @@ impl NetworkEngine {
                 if let Ok(mut g) = VIRTUAL_MOUSE.lock() {
                     if let Some(ref mut dev) = *g {
                         let ev = EvdevEvent::new(EventType::RELATIVE, RelativeAxisType::REL_WHEEL.0, *delta_y as i32);
-                        let _ = dev.emit(&[ev]);
+                        let sync = EvdevEvent::new(EventType::SYNCHRONIZATION, 0, 0);
+                        let _ = dev.emit(&[ev, sync]);
                         return;
                     }
                 }

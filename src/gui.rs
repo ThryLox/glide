@@ -92,7 +92,6 @@ fn key_to_xdotool(k: &Key) -> Option<String> {
 
 impl eframe::App for GlideGuiApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        // Ctrl+Escape: emergency return to laptop
         ctx.input(|i| {
             if i.key_pressed(egui::Key::Escape) && i.modifiers.ctrl {
                 self.kvm_state.on_remote.store(false, Ordering::SeqCst);
@@ -133,7 +132,6 @@ impl eframe::App for GlideGuiApp {
 
             ui.separator();
 
-            // Hotkey legend
             ui.group(|ui| {
                 ui.label("⌨️ KVM Hotkeys:");
                 ui.label("  [Scroll Lock]   — toggle focus between Laptop ↔ Kali");
@@ -160,7 +158,6 @@ impl eframe::App for GlideGuiApp {
                 self.active_stream.store(true, Ordering::SeqCst);
                 self.packet_counter.store(0, Ordering::SeqCst);
 
-                // Send SetLayout so Kali knows which edge to watch for return
                 #[cfg(not(target_os = "linux"))]
                 {
                     let side: u8 = match self.screen_pos {
@@ -180,7 +177,6 @@ impl eframe::App for GlideGuiApp {
                     }
                 }
 
-                // Spawn ReturnToHost listener on port 24801
                 #[cfg(not(target_os = "linux"))]
                 {
                     let kvm_ret    = self.kvm_state.clone();
@@ -330,8 +326,9 @@ impl GlideGuiApp {
 
                     EventType::KeyPress(k) => {
                         if on_remote {
-                            if let Some(name) = key_to_xdotool(k) {
-                                send_event(&crate::protocol::InputEvent::KeyName { name, pressed: true });
+                            let name = event.name.clone().or_else(|| key_to_xdotool(k));
+                            if let Some(n) = name {
+                                send_event(&crate::protocol::InputEvent::KeyName { name: n, pressed: true });
                             }
                             return None;
                         }
@@ -339,8 +336,9 @@ impl GlideGuiApp {
                     }
                     EventType::KeyRelease(k) => {
                         if on_remote {
-                            if let Some(name) = key_to_xdotool(k) {
-                                send_event(&crate::protocol::InputEvent::KeyName { name, pressed: false });
+                            let name = event.name.clone().or_else(|| key_to_xdotool(k));
+                            if let Some(n) = name {
+                                send_event(&crate::protocol::InputEvent::KeyName { name: n, pressed: false });
                             }
                             return None;
                         }
