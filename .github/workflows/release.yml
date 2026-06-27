@@ -1,0 +1,46 @@
+name: Build & Publish Release Binaries
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  build:
+    name: Build ${{ matrix.target }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            artifact_name: glide-kvm-linux
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            artifact_name: glide-kvm-windows.exe
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Install Linux Dependencies
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libx11-dev libxtst-dev libevdev-dev libudev-dev
+
+      - name: Build Binary
+        run: cargo build --release --target ${{ matrix.target }}
+
+      - name: Rename & Upload Release Artifacts
+        uses: softprops/action-gh-release@v1
+        with:
+          files: |
+            target/${{ matrix.target }}/release/glide-kvm*
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
