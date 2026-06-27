@@ -1,6 +1,6 @@
 use eframe::egui;
 use std::net::SocketAddr;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::net::UdpSocket;
@@ -25,6 +25,7 @@ pub struct GlideGuiApp {
     file_transfer_enabled: bool,
     runtime: Arc<tokio::runtime::Runtime>,
     active_stream: Arc<AtomicBool>,
+    packet_counter: Arc<AtomicU64>,
 }
 
 impl Default for GlideGuiApp {
@@ -39,6 +40,7 @@ impl Default for GlideGuiApp {
             file_transfer_enabled: true,
             runtime: Arc::new(rt),
             active_stream: Arc::new(AtomicBool::new(false)),
+            packet_counter: Arc::new(AtomicU64::new(0)),
         }
     }
 }
@@ -74,10 +76,12 @@ impl eframe::App for GlideGuiApp {
                     if ui.button("🟢 Connect & Start Glide").clicked() {
                         self.connected = true;
                         self.active_stream.store(true, Ordering::SeqCst);
+                        self.packet_counter.store(0, Ordering::SeqCst);
                         let target_str = format!("{}:24800", self.target_ip.trim());
                         if let Ok(addr) = target_str.parse::<SocketAddr>() {
                             info!("Initiating network connection to {}", addr);
                             let active_flag = self.active_stream.clone();
+                            let counter = self.packet_counter.clone();
                             self.runtime.spawn(async move {
                                 if let Ok(socket) = UdpSocket::bind("0.0.0.0:0").await {
                                     let mut step: i32 = 0;
@@ -86,7 +90,9 @@ impl eframe::App for GlideGuiApp {
                                         let dy = ((step + 5) % 20) - 10;
                                         let event = InputEvent::MouseMove { x: dx, y: dy };
                                         if let Ok(bytes) = bincode::serialize(&event) {
-                                            let _ = socket.send_to(&bytes, addr).await;
+                                            if socket.send_to(&bytes, addr).await.is_ok() {
+                                                counter.fetch_add(1, Ordering::SeqCst);
+                                            }
                                         }
                                         tokio::time::sleep(Duration::from_millis(50)).await;
                                         step += 1;
@@ -105,9 +111,15 @@ impl eframe::App for GlideGuiApp {
 
             ui.separator();
             ui.heading("📊 Live Network Telemetry");
-            ui.label(format!("Status: {}", if self.connected { "Connected 🟢 (Streaming Active)" } else { "Idle ⚪" }));
+            let packets = self.packet_counter.load(Ordering::SeqCst);
+            ui.label(format!("Status: {}", if self.connected { "Streaming Telemetry 🟢" } else { "Disconnected ⚪" }));
             ui.label("Average Latency: 1.1 ms");
-            ui.label("Packets Streamed: Live Telemetry Active");
+            ui.label(format!("Packets Sent: {}", packets));
+
+            // Request continuous UI repaint for live packet counter telemetry
+            if self.connected {
+                ctx.request_repaint();
+            }
         });
     }
 }
