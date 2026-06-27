@@ -10,7 +10,10 @@ pub enum InputEvent {
     KeyName { name: String, pressed: bool },  // xdotool-compatible key name
     Scroll { delta_x: f32, delta_y: f32 },
     LockState { locked: bool },
+    SetLayout { side: u8 },   // Sent by Windows client on connect: 0=Right,1=Left,2=Top,3=Bottom
+    ReturnToHost,             // Sent by Kali → Windows when cursor hits the return edge
 }
+
 
 #[allow(dead_code)]
 #[derive(Debug, Clone, Serialize, Deserialize)]

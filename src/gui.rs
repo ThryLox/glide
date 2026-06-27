@@ -155,16 +155,56 @@ impl eframe::App for GlideGuiApp {
                     self.active_stream.store(false, Ordering::SeqCst);
                     self.kvm_state.on_remote.store(false, Ordering::SeqCst);
                 }
-            } else {
-                if ui.button("🟢 Connect & Start Glide").clicked() {
-                    self.connected = true;
-                    self.active_stream.store(true, Ordering::SeqCst);
-                    self.packet_counter.store(0, Ordering::SeqCst);
+            } else if ui.button("🟢 Connect & Start Glide").clicked() {
+                        self.connected = true;
+                        self.active_stream.store(true, Ordering::SeqCst);
+                        self.packet_counter.store(0, Ordering::SeqCst);
 
-                    #[cfg(not(target_os = "linux"))]
-                    self.start_grab_thread();
-                }
-            }
+                        // Send SetLayout so Kali knows which edge to watch for return
+                        #[cfg(not(target_os = "linux"))]
+                        {
+                            let side: u8 = match self.screen_pos {
+                                ScreenPosition::Right  => 0,
+                                ScreenPosition::Left   => 1,
+                                ScreenPosition::Top    => 2,
+                                ScreenPosition::Bottom => 3,
+                            };
+                            let target_str = format!("{}:24800", self.target_ip.trim());
+                            if let Ok(addr) = target_str.parse::<std::net::SocketAddr>() {
+                                let ev = crate::protocol::InputEvent::SetLayout { side };
+                                if let Ok(bytes) = bincode::serialize(&ev) {
+                                    if let Ok(sock) = std::net::UdpSocket::bind("0.0.0.0:0") {
+                                        let _ = sock.send_to(&bytes, addr);
+                                    }
+                                }
+                            }
+                        }
+
+                        // Spawn ReturnToHost listener on port 24801
+                        // When Kali cursor hits its return edge it sends here
+                        #[cfg(not(target_os = "linux"))]
+                        {
+                            let kvm_ret    = self.kvm_state.clone();
+                            let active_ret = self.active_stream.clone();
+                            std::thread::spawn(move || {
+                                let Ok(sock) = std::net::UdpSocket::bind("0.0.0.0:24801") else { return; };
+                                let mut buf = [0u8; 256];
+                                loop {
+                                    if !active_ret.load(Ordering::SeqCst) { break; }
+                                    if let Ok((len, _)) = sock.recv_from(&mut buf) {
+                                        if let Ok(crate::protocol::InputEvent::ReturnToHost) =
+                                            bincode::deserialize::<crate::protocol::InputEvent>(&buf[..len])
+                                        {
+                                            kvm_ret.on_remote.store(false, Ordering::SeqCst);
+                                        }
+                                    }
+                                }
+                            });
+                        }
+
+                        #[cfg(not(target_os = "linux"))]
+                        self.start_grab_thread();
+                    }
 
             ui.separator();
             ui.heading("⚙️ Settings");
