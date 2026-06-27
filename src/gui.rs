@@ -5,6 +5,8 @@ use std::time::Duration;
 
 #[cfg(not(target_os = "linux"))]
 use rdev::{grab, Event, EventType, Key, Button};
+#[cfg(not(target_os = "linux"))]
+use std::cell::Cell;
 
 #[derive(PartialEq, Clone, Copy, Debug)]
 pub enum ScreenPosition {
@@ -154,8 +156,10 @@ impl GlideGuiApp {
         let screen_pos   = self.screen_pos;
 
         std::thread::spawn(move || {
-            let mut last_x: f64 = 0.0;
-            let mut last_y: f64 = 0.0;
+            // Cell gives interior mutability so the closure implements Fn (not FnMut),
+            // which is required by rdev::grab.
+            let last_x: Cell<f64> = Cell::new(0.0);
+            let last_y: Cell<f64> = Cell::new(0.0);
 
             // rdev::grab intercepts every OS-level hardware event.
             // Return Some(event) → Windows still processes it normally.
@@ -223,8 +227,8 @@ impl GlideGuiApp {
 
                     // ── Mouse movement: boundary detection + delta streaming ─
                     EventType::MouseMove { x, y } => {
-                        let dx = (x - last_x) as i32;
-                        let dy = (y - last_y) as i32;
+                        let dx = (x - last_x.get()) as i32;
+                        let dy = (y - last_y.get()) as i32;
 
                         if on_remote {
                             // We are on Kali. Check if user moved back past return boundary.
@@ -237,8 +241,8 @@ impl GlideGuiApp {
 
                             if returned {
                                 kvm.on_remote.store(false, Ordering::SeqCst);
-                                last_x = x;
-                                last_y = y;
+                                last_x.set(x);
+                                last_y.set(y);
                                 return Some(event); // Return cursor to Windows
                             }
 
@@ -247,8 +251,8 @@ impl GlideGuiApp {
                                 let ev = crate::protocol::InputEvent::MouseMove { x: dx, y: dy };
                                 udp_send(addr, &ev, &counter);
                             }
-                            last_x = x;
-                            last_y = y;
+                            last_x.set(x);
+                            last_y.set(y);
                             return None; // Windows cursor stays pinned at edge
 
                         } else {
@@ -262,14 +266,14 @@ impl GlideGuiApp {
 
                             if at_boundary {
                                 kvm.on_remote.store(true, Ordering::SeqCst);
-                                last_x = x;
-                                last_y = y;
+                                last_x.set(x);
+                                last_y.set(y);
                                 // Suppress this event — Windows cursor stays pinned at edge
                                 return None;
                             }
 
-                            last_x = x;
-                            last_y = y;
+                            last_x.set(x);
+                            last_y.set(y);
                             return Some(event); // Normal Windows movement
                         }
                     }
