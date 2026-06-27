@@ -31,7 +31,7 @@ impl NetworkEngine {
         
         // Grant local X11 display permissions & wake monitor on Linux server start
         #[cfg(target_os = "linux")]
-        Self::prepare_linux_display();
+        Self::wake_display();
 
         loop {
             match self.socket.recv_from(&mut buf).await {
@@ -48,7 +48,7 @@ impl NetworkEngine {
         }
     }
 
-    fn prepare_linux_display() {
+    fn wake_display() {
         #[cfg(target_os = "linux")]
         {
             let display = std::env::var("DISPLAY").unwrap_or_else(|_| ":0".to_string());
@@ -61,11 +61,23 @@ impl NetworkEngine {
                 .args(["+local:"])
                 .spawn();
 
-            // Wake up display
+            // Force wake up display hardware and reset screensaver
             let _ = Command::new("xset")
                 .env("DISPLAY", &display)
                 .env("XAUTHORITY", &xauth)
                 .args(["dpms", "force", "on"])
+                .spawn();
+
+            let _ = Command::new("xset")
+                .env("DISPLAY", &display)
+                .env("XAUTHORITY", &xauth)
+                .args(["s", "reset"])
+                .spawn();
+
+            let _ = Command::new("xdotool")
+                .env("DISPLAY", &display)
+                .env("XAUTHORITY", &xauth)
+                .args(["key", "Shift_L"])
                 .spawn();
         }
     }
@@ -73,6 +85,9 @@ impl NetworkEngine {
     fn simulate_os_input(event: &InputEvent) {
         #[cfg(target_os = "linux")]
         {
+            // Wake display when receiving motion
+            Self::wake_display();
+
             let display = std::env::var("DISPLAY").unwrap_or_else(|_| ":0".to_string());
             let xauth = std::env::var("XAUTHORITY").unwrap_or_else(|_| {
                 let default_path = "/home/thrylox/.Xauthority";

@@ -1,13 +1,13 @@
 use eframe::egui;
 use std::net::SocketAddr;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::net::UdpSocket;
 use tracing::info;
 use crate::protocol::InputEvent;
 
-#[derive(PartialEq, Clone, Copy)]
+#[derive(PartialEq, Clone, Copy, Debug)]
 pub enum ScreenPosition {
     Right,
     Left,
@@ -25,7 +25,7 @@ pub struct GlideGuiApp {
     file_transfer_enabled: bool,
     runtime: Arc<tokio::runtime::Runtime>,
     active_stream: Arc<AtomicBool>,
-    packet_counter: Arc<AtomicU64>,
+    packet_counter: Arc<std::sync::atomic::AtomicU64>,
 }
 
 impl Default for GlideGuiApp {
@@ -34,13 +34,13 @@ impl Default for GlideGuiApp {
         Self {
             machine_name: "Kali-Linux".to_string(),
             target_ip: "100.119.208.55".to_string(),
-            screen_pos: ScreenPosition::Right,
+            screen_pos: ScreenPosition::Left,
             connected: false,
             clipboard_sync: true,
             file_transfer_enabled: true,
             runtime: Arc::new(rt),
             active_stream: Arc::new(AtomicBool::new(false)),
-            packet_counter: Arc::new(AtomicU64::new(0)),
+            packet_counter: Arc::new(std::sync::atomic::AtomicU64::new(0)),
         }
     }
 }
@@ -78,16 +78,22 @@ impl eframe::App for GlideGuiApp {
                         self.active_stream.store(true, Ordering::SeqCst);
                         self.packet_counter.store(0, Ordering::SeqCst);
                         let target_str = format!("{}:24800", self.target_ip.trim());
+                        let pos = self.screen_pos;
                         if let Ok(addr) = target_str.parse::<SocketAddr>() {
-                            info!("Initiating network connection to {}", addr);
+                            info!("Initiating network connection to {} with position {:?}", addr, pos);
                             let active_flag = self.active_stream.clone();
                             let counter = self.packet_counter.clone();
                             self.runtime.spawn(async move {
                                 if let Ok(socket) = UdpSocket::bind("0.0.0.0:0").await {
                                     let mut step: i32 = 0;
                                     while active_flag.load(Ordering::SeqCst) {
-                                        let dx = (step % 20) - 10;
-                                        let dy = ((step + 5) % 20) - 10;
+                                        // Generate directional deltas based on selected screen orientation
+                                        let (dx, dy) = match pos {
+                                            ScreenPosition::Left => (-15, (step % 5) - 2),
+                                            ScreenPosition::Right => (15, (step % 5) - 2),
+                                            ScreenPosition::Top => ((step % 5) - 2, -15),
+                                            ScreenPosition::Bottom => ((step % 5) - 2, 15),
+                                        };
                                         let event = InputEvent::MouseMove { x: dx, y: dy };
                                         if let Ok(bytes) = bincode::serialize(&event) {
                                             if socket.send_to(&bytes, addr).await.is_ok() {
@@ -116,7 +122,6 @@ impl eframe::App for GlideGuiApp {
             ui.label("Average Latency: 1.1 ms");
             ui.label(format!("Packets Sent: {}", packets));
 
-            // Request continuous UI repaint for live packet counter telemetry
             if self.connected {
                 ctx.request_repaint();
             }
