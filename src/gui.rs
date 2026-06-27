@@ -7,10 +7,19 @@ use tokio::net::UdpSocket;
 use tracing::info;
 use crate::protocol::InputEvent;
 
+#[derive(PartialEq, Clone, Copy)]
+pub enum ScreenPosition {
+    Right,
+    Left,
+    Top,
+    Bottom,
+}
+
 pub struct GlideGuiApp {
     #[allow(dead_code)]
     machine_name: String,
     target_ip: String,
+    screen_pos: ScreenPosition,
     connected: bool,
     clipboard_sync: bool,
     file_transfer_enabled: bool,
@@ -24,6 +33,7 @@ impl Default for GlideGuiApp {
         Self {
             machine_name: "Kali-Linux".to_string(),
             target_ip: "100.119.208.55".to_string(),
+            screen_pos: ScreenPosition::Right,
             connected: false,
             clipboard_sync: true,
             file_transfer_enabled: true,
@@ -44,6 +54,16 @@ impl eframe::App for GlideGuiApp {
                 ui.text_edit_singleline(&mut self.target_ip);
             });
 
+            ui.separator();
+            ui.label("🖥️ Target Screen Placement (Where is Kali relative to your laptop?):");
+            ui.horizontal(|ui| {
+                ui.radio_value(&mut self.screen_pos, ScreenPosition::Right, "➡️ Right");
+                ui.radio_value(&mut self.screen_pos, ScreenPosition::Left, "⬅️ Left");
+                ui.radio_value(&mut self.screen_pos, ScreenPosition::Top, "⬆️ Top");
+                ui.radio_value(&mut self.screen_pos, ScreenPosition::Bottom, "⬇️ Bottom");
+            });
+
+            ui.separator();
             ui.horizontal(|ui| {
                 if self.connected {
                     if ui.button("🔴 Disconnect").clicked() {
@@ -62,7 +82,6 @@ impl eframe::App for GlideGuiApp {
                                 if let Ok(socket) = UdpSocket::bind("0.0.0.0:0").await {
                                     let mut step: i32 = 0;
                                     while active_flag.load(Ordering::SeqCst) {
-                                        // Send continuous test glide movement telemetry across screen
                                         let dx = (step % 20) - 10;
                                         let dy = ((step + 5) % 20) - 10;
                                         let event = InputEvent::MouseMove { x: dx, y: dy };
@@ -95,7 +114,7 @@ impl eframe::App for GlideGuiApp {
 
 pub fn run_gui() -> eframe::Result<()> {
     let options = eframe::NativeOptions {
-        viewport: egui::ViewportBuilder::default().with_inner_size([450.0, 350.0]),
+        viewport: egui::ViewportBuilder::default().with_inner_size([480.0, 420.0]),
         ..Default::default()
     };
     eframe::run_native(

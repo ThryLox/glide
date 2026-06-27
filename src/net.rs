@@ -28,6 +28,11 @@ impl NetworkEngine {
     pub async fn run_server_loop(self) -> Result<()> {
         let mut buf = [0u8; 1024];
         info!("Server listening for active input events...");
+        
+        // Force monitor wake-up on Linux server start
+        #[cfg(target_os = "linux")]
+        Self::wake_display();
+
         loop {
             match self.socket.recv_from(&mut buf).await {
                 Ok((len, addr)) => {
@@ -43,10 +48,22 @@ impl NetworkEngine {
         }
     }
 
+    fn wake_display() {
+        #[cfg(target_os = "linux")]
+        {
+            let display = std::env::var("DISPLAY").unwrap_or_else(|_| ":0".to_string());
+            let xauth = std::env::var("XAUTHORITY").unwrap_or_else(|_| "/home/thrylox/.Xauthority".to_string());
+            let _ = Command::new("xset")
+                .env("DISPLAY", &display)
+                .env("XAUTHORITY", &xauth)
+                .args(["dpms", "force", "on"])
+                .spawn();
+        }
+    }
+
     fn simulate_os_input(event: &InputEvent) {
         #[cfg(target_os = "linux")]
         {
-            // Dynamically resolve active X11 display and authority cookies
             let display = std::env::var("DISPLAY").unwrap_or_else(|_| ":0".to_string());
             let xauth = std::env::var("XAUTHORITY").unwrap_or_else(|_| {
                 let default_path = "/home/thrylox/.Xauthority";
