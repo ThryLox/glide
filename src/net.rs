@@ -46,31 +46,38 @@ impl NetworkEngine {
     fn simulate_os_input(event: &InputEvent) {
         #[cfg(target_os = "linux")]
         {
+            // Dynamically resolve active X11 display and authority cookies
+            let display = std::env::var("DISPLAY").unwrap_or_else(|_| ":0".to_string());
+            let xauth = std::env::var("XAUTHORITY").unwrap_or_else(|_| {
+                let default_path = "/home/thrylox/.Xauthority";
+                if std::path::Path::new(default_path).exists() {
+                    default_path.to_string()
+                } else {
+                    "/run/user/1000/gdm/Xauthority".to_string()
+                }
+            });
+
             match event {
                 InputEvent::MouseMove { x, y } => {
-                    // Simulate mouse movement on Linux screen using xdotool with full X11 auth env
                     let _ = Command::new("xdotool")
-                        .env("DISPLAY", ":0")
-                        .env("XAUTHORITY", "/home/thrylox/.Xauthority")
-                        .env("HOME", "/home/thrylox")
+                        .env("DISPLAY", &display)
+                        .env("XAUTHORITY", &xauth)
                         .args(["mousemove_relative", "--", &x.to_string(), &y.to_string()])
                         .spawn();
                 }
                 InputEvent::MouseButton { button, pressed } => {
                     let action = if *pressed { "mousedown" } else { "mouseup" };
                     let _ = Command::new("xdotool")
-                        .env("DISPLAY", ":0")
-                        .env("XAUTHORITY", "/home/thrylox/.Xauthority")
-                        .env("HOME", "/home/thrylox")
+                        .env("DISPLAY", &display)
+                        .env("XAUTHORITY", &xauth)
                         .args([action, &button.to_string()])
                         .spawn();
                 }
                 InputEvent::KeyPress { key_code, pressed } => {
                     let action = if *pressed { "keydown" } else { "keyup" };
                     let _ = Command::new("xdotool")
-                        .env("DISPLAY", ":0")
-                        .env("XAUTHORITY", "/home/thrylox/.Xauthority")
-                        .env("HOME", "/home/thrylox")
+                        .env("DISPLAY", &display)
+                        .env("XAUTHORITY", &xauth)
                         .args([action, &key_code.to_string()])
                         .spawn();
                 }
