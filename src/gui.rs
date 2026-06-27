@@ -1,6 +1,7 @@
 use eframe::egui;
 
 pub struct GlideGuiApp {
+    #[allow(dead_code)]
     machine_name: String,
     target_ip: String,
     connected: bool,

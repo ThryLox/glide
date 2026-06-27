@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 
+#[allow(dead_code)]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum InputEvent {
     MouseMove { x: i32, y: i32 },
@@ -9,6 +10,7 @@ pub enum InputEvent {
     LockState { locked: bool },
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum ControlMessage {
     Handshake { machine_name: String, screen_width: u32, screen_height: u32 },

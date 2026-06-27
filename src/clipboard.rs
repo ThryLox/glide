@@ -1,10 +1,12 @@
 use arboard::Clipboard;
 use tracing::{info, error};
 
+#[allow(dead_code)]
 pub struct ClipboardManager {
     clipboard: Option<Clipboard>,
 }
 
+#[allow(dead_code)]
 impl ClipboardManager {
     pub fn new() -> Self {
         match Clipboard::new() {

@@ -4,10 +4,12 @@ use anyhow::Result;
 use tracing::info;
 use crate::protocol::InputEvent;
 
+#[allow(dead_code)]
 pub struct NetworkEngine {
     socket: UdpSocket,
 }
 
+#[allow(dead_code)]
 impl NetworkEngine {
     pub async fn bind(addr: &str) -> Result<Self> {
         let socket = UdpSocket::bind(addr).await?;
