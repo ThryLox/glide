@@ -4,11 +4,10 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::net::UdpSocket;
-use tracing::info;
 use crate::protocol::InputEvent;
 
 #[cfg(not(target_os = "linux"))]
-use rdev::{listen, Event, EventType};
+use rdev::{listen, Event, EventType, Key};
 
 #[derive(PartialEq, Clone, Copy, Debug)]
 pub enum ScreenPosition {
@@ -52,10 +51,18 @@ impl Default for GlideGuiApp {
 
 impl eframe::App for GlideGuiApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        // Emergency escape hotkey check in GUI context (e.g. Esc key or Ctrl+Alt+S)
+        ctx.input(|i| {
+            if i.key_pressed(egui::Key::Escape) && i.modifiers.ctrl {
+                self.connected = false;
+                self.active_stream.store(false, Ordering::SeqCst);
+            }
+        });
+
         if self.connected {
             let target_str = format!("{}:24800", self.target_ip.trim());
             if let Ok(addr) = target_str.parse::<SocketAddr>() {
-                // System-wide pointer tracking inside GUI window
+                // Pointer motion tracking
                 if let Some(current_pos) = ctx.pointer_latest_pos() {
                     if let Some(last_pos) = self.last_mouse_pos {
                         let dx = (current_pos.x - last_pos.x) as i32;
@@ -145,7 +152,7 @@ impl eframe::App for GlideGuiApp {
             ui.separator();
             ui.horizontal(|ui| {
                 if self.connected {
-                    if ui.button("🔴 Disconnect").clicked() {
+                    if ui.button("🔴 Disconnect (Ctrl+Esc Emergency)").clicked() {
                         self.connected = false;
                         self.active_stream.store(false, Ordering::SeqCst);
                     }
@@ -155,7 +162,7 @@ impl eframe::App for GlideGuiApp {
                         self.active_stream.store(true, Ordering::SeqCst);
                         self.packet_counter.store(0, Ordering::SeqCst);
 
-                        // Spawn system-wide global OS input capture thread for Windows/macOS
+                        // Spawn system-wide global OS input capture & panic hotkey listener thread
                         #[cfg(not(target_os = "linux"))]
                         {
                             let target_str = format!("{}:24800", self.target_ip.trim());
@@ -170,6 +177,10 @@ impl eframe::App for GlideGuiApp {
                                             return;
                                         }
                                         match event.event_type {
+                                            EventType::KeyPress(Key::Escape) => {
+                                                // Emergency Escape Hotkey triggered!
+                                                active_flag.store(false, Ordering::SeqCst);
+                                            }
                                             EventType::MouseMove { x, y } => {
                                                 let dx = (x - last_x) as i32;
                                                 let dy = (y - last_y) as i32;
@@ -198,14 +209,15 @@ impl eframe::App for GlideGuiApp {
             });
 
             ui.separator();
-            ui.heading("⚙️ Settings & Capabilities");
+            ui.heading("⚙️ Settings & Emergency");
+            ui.label("🚨 Emergency Panic Hotkey: Press [Escape] or [Ctrl + Escape] anytime to instantly reset cursor back to laptop.");
             ui.checkbox(&mut self.clipboard_sync, "📋 Enable Cross-OS Clipboard Synchronization");
             ui.checkbox(&mut self.file_transfer_enabled, "📁 Enable Drag & Drop File Transfer");
 
             ui.separator();
             ui.heading("📊 Live Network Telemetry");
             let packets = self.packet_counter.load(Ordering::SeqCst);
-            ui.label(format!("Status: {}", if self.connected { "System-Wide OS Hook Active 🟢" } else { "Disconnected ⚪" }));
+            ui.label(format!("Status: {}", if self.connected { "System-Wide OS Hook Active 🟢" } else { "Disconnected / Reset ⚪" }));
             ui.label("Average Latency: 1.1 ms");
             ui.label(format!("Packets Sent: {}", packets));
 
@@ -218,7 +230,7 @@ impl eframe::App for GlideGuiApp {
 
 pub fn run_gui() -> eframe::Result<()> {
     let options = eframe::NativeOptions {
-        viewport: egui::ViewportBuilder::default().with_inner_size([480.0, 420.0]),
+        viewport: egui::ViewportBuilder::default().with_inner_size([480.0, 440.0]),
         ..Default::default()
     };
     eframe::run_native(
