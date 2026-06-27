@@ -1,10 +1,7 @@
 use eframe::egui;
-use std::net::SocketAddr;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
-use tokio::net::UdpSocket;
-use crate::protocol::InputEvent;
 
 #[cfg(not(target_os = "linux"))]
 use rdev::{listen, Event, EventType, Key, Button};
@@ -25,15 +22,12 @@ pub struct GlideGuiApp {
     connected: bool,
     clipboard_sync: bool,
     file_transfer_enabled: bool,
-    runtime: Arc<tokio::runtime::Runtime>,
     active_stream: Arc<AtomicBool>,
     packet_counter: Arc<std::sync::atomic::AtomicU64>,
-    last_mouse_pos: Option<egui::Pos2>,
 }
 
 impl Default for GlideGuiApp {
     fn default() -> Self {
-        let rt = tokio::runtime::Runtime::new().unwrap();
         Self {
             machine_name: "Kali-Linux".to_string(),
             target_ip: "100.119.208.55".to_string(),
@@ -41,10 +35,8 @@ impl Default for GlideGuiApp {
             connected: false,
             clipboard_sync: true,
             file_transfer_enabled: true,
-            runtime: Arc::new(rt),
             active_stream: Arc::new(AtomicBool::new(false)),
             packet_counter: Arc::new(std::sync::atomic::AtomicU64::new(0)),
-            last_mouse_pos: None,
         }
     }
 }
@@ -90,11 +82,11 @@ impl eframe::App for GlideGuiApp {
                         self.active_stream.store(true, Ordering::SeqCst);
                         self.packet_counter.store(0, Ordering::SeqCst);
 
-                        // Spawn system-wide global OS input capture & keyboard routing thread
+                        // Spawn system-wide global OS input capture & mouse trapping thread
                         #[cfg(not(target_os = "linux"))]
                         {
                             let target_str = format!("{}:24800", self.target_ip.trim());
-                            if let Ok(addr) = target_str.parse::<SocketAddr>() {
+                            if let Ok(addr) = target_str.parse::<std::net::SocketAddr>() {
                                 let active_flag = self.active_stream.clone();
                                 let counter = self.packet_counter.clone();
                                 std::thread::spawn(move || {
@@ -110,7 +102,7 @@ impl eframe::App for GlideGuiApp {
                                             }
                                             EventType::KeyPress(k) => {
                                                 let key_code = format!("{:?}", k).len() as u32;
-                                                let ev = InputEvent::KeyPress { key_code, pressed: true };
+                                                let ev = crate::protocol::InputEvent::KeyPress { key_code, pressed: true };
                                                 if let Ok(bytes) = bincode::serialize(&ev) {
                                                     if let Ok(sock) = std::net::UdpSocket::bind("0.0.0.0:0") {
                                                         let _ = sock.send_to(&bytes, addr);
@@ -119,7 +111,7 @@ impl eframe::App for GlideGuiApp {
                                             }
                                             EventType::KeyRelease(k) => {
                                                 let key_code = format!("{:?}", k).len() as u32;
-                                                let ev = InputEvent::KeyPress { key_code, pressed: false };
+                                                let ev = crate::protocol::InputEvent::KeyPress { key_code, pressed: false };
                                                 if let Ok(bytes) = bincode::serialize(&ev) {
                                                     if let Ok(sock) = std::net::UdpSocket::bind("0.0.0.0:0") {
                                                         let _ = sock.send_to(&bytes, addr);
@@ -133,7 +125,7 @@ impl eframe::App for GlideGuiApp {
                                                     Button::Right => 3,
                                                     _ => 1,
                                                 };
-                                                let ev = InputEvent::MouseButton { button: button_id, pressed: true };
+                                                let ev = crate::protocol::InputEvent::MouseButton { button: button_id, pressed: true };
                                                 if let Ok(bytes) = bincode::serialize(&ev) {
                                                     if let Ok(sock) = std::net::UdpSocket::bind("0.0.0.0:0") {
                                                         let _ = sock.send_to(&bytes, addr);
@@ -148,7 +140,7 @@ impl eframe::App for GlideGuiApp {
                                                     Button::Right => 3,
                                                     _ => 1,
                                                 };
-                                                let ev = InputEvent::MouseButton { button: button_id, pressed: false };
+                                                let ev = crate::protocol::InputEvent::MouseButton { button: button_id, pressed: false };
                                                 if let Ok(bytes) = bincode::serialize(&ev) {
                                                     if let Ok(sock) = std::net::UdpSocket::bind("0.0.0.0:0") {
                                                         let _ = sock.send_to(&bytes, addr);
@@ -163,7 +155,7 @@ impl eframe::App for GlideGuiApp {
                                                 last_y = y;
 
                                                 if dx != 0 || dy != 0 {
-                                                    let ev = InputEvent::MouseMove { x: dx, y: dy };
+                                                    let ev = crate::protocol::InputEvent::MouseMove { x: dx, y: dy };
                                                     if let Ok(bytes) = bincode::serialize(&ev) {
                                                         if let Ok(sock) = std::net::UdpSocket::bind("0.0.0.0:0") {
                                                             let _ = sock.send_to(&bytes, addr);
