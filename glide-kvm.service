@@ -1,0 +1,14 @@
+[Unit]
+Description=glide-kvm Ultra-Low Latency Background Service
+After=network.target
+
+[Service]
+Type=simple
+User=thrylox
+WorkingDirectory=/home/thrylox/glide-kvm
+ExecStart=/home/thrylox/glide-kvm/target/release/glide-kvm --server
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target
