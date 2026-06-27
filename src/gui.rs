@@ -2,6 +2,7 @@ use eframe::egui;
 use std::net::SocketAddr;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::time::Duration;
 use tokio::net::UdpSocket;
 use tracing::info;
 use crate::protocol::InputEvent;
@@ -59,7 +60,7 @@ impl eframe::App for GlideGuiApp {
                             let active_flag = self.active_stream.clone();
                             self.runtime.spawn(async move {
                                 if let Ok(socket) = UdpSocket::bind("0.0.0.0:0").await {
-                                    let mut step = 0;
+                                    let mut step: i32 = 0;
                                     while active_flag.load(Ordering::SeqCst) {
                                         // Send continuous test glide movement telemetry across screen
                                         let dx = (step % 20) - 10;
@@ -68,7 +69,7 @@ impl eframe::App for GlideGuiApp {
                                         if let Ok(bytes) = bincode::serialize(&event) {
                                             let _ = socket.send_to(&bytes, addr).await;
                                         }
-                                        tokio::time::sleep(tokio::time::duration::Duration::from_millis(50)).await;
+                                        tokio::time::sleep(Duration::from_millis(50)).await;
                                         step += 1;
                                     }
                                 }
@@ -87,7 +88,7 @@ impl eframe::App for GlideGuiApp {
             ui.heading("📊 Live Network Telemetry");
             ui.label(format!("Status: {}", if self.connected { "Connected 🟢 (Streaming Active)" } else { "Idle ⚪" }));
             ui.label("Average Latency: 1.1 ms");
-            ui.label("Packets Streamed: Streaming telemetry packets...");
+            ui.label("Packets Streamed: Live Telemetry Active");
         });
     }
 }
