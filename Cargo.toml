@@ -3,7 +3,7 @@ name = "glide-kvm"
 version = "0.1.0"
 edition = "2021"
 authors = ["thrylox"]
-description = "Ultra-low latency Rust Software KVM with clipboard sync, file drag-and-drop, and egui dashboard"
+description = "Ultra-low latency cross-platform Software KVM — seamlessly share mouse, keyboard, and clipboard between any OS"
 
 [dependencies]
 # Async runtime & networking
@@ -25,9 +25,15 @@ anyhow = "1.0"
 clap = { version = "4.5", features = ["derive"] }
 lazy_static = "1.4"
 
+# Cross-platform input injection (server role) — Windows/macOS/Linux
+enigo = "0.2"
+
+# Linux-only: kernel-level /dev/uinput (best path under Wayland)
+# and rdev for Linux-as-client input capture
 [target.'cfg(target_os = "linux")'.dependencies]
 evdev = "0.12"
 x11rb = "0.13"
 
+# Windows / macOS: rdev for global input capture (client GUI role)
 [target.'cfg(not(target_os = "linux"))'.dependencies]
 rdev = { version = "0.5", features = ["unstable_grab"] }

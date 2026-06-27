@@ -3,9 +3,9 @@ use std::sync::atomic::{AtomicBool, AtomicI32, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
-#[cfg(not(target_os = "linux"))]
+
 use rdev::{grab, simulate, Event, EventType, Key, Button};
-#[cfg(not(target_os = "linux"))]
+
 use std::cell::Cell;
 
 #[derive(PartialEq, Clone, Copy, Debug)]
@@ -53,7 +53,7 @@ impl Default for GlideGuiApp {
 }
 
 /// Map rdev Key to an xdotool-compatible key name string
-#[cfg(not(target_os = "linux"))]
+
 fn key_to_xdotool(k: &Key) -> Option<String> {
     let name = match k {
         Key::KeyA => "a", Key::KeyB => "b", Key::KeyC => "c", Key::KeyD => "d",
@@ -161,7 +161,7 @@ impl eframe::App for GlideGuiApp {
                         self.packet_counter.store(0, Ordering::SeqCst);
 
                         // Send SetLayout so Kali knows which edge to watch for return
-                        #[cfg(not(target_os = "linux"))]
+                        
                         {
                             let side: u8 = match self.screen_pos {
                                 ScreenPosition::Right  => 0,
@@ -182,7 +182,7 @@ impl eframe::App for GlideGuiApp {
 
                         // Spawn ReturnToHost listener on port 24801
                         // When Kali cursor hits its return edge it sends here
-                        #[cfg(not(target_os = "linux"))]
+                        
                         {
                             let kvm_ret    = self.kvm_state.clone();
                             let active_ret = self.active_stream.clone();
@@ -202,7 +202,7 @@ impl eframe::App for GlideGuiApp {
                             });
                         }
 
-                        #[cfg(not(target_os = "linux"))]
+                        
                         self.start_grab_thread();
                     }
 
@@ -231,7 +231,7 @@ impl eframe::App for GlideGuiApp {
 }
 
 impl GlideGuiApp {
-    #[cfg(not(target_os = "linux"))]
+    
     fn start_grab_thread(&self) {
         let target_str = format!("{}:24800", self.target_ip.trim());
         let Ok(addr) = target_str.parse::<std::net::SocketAddr>() else { return; };
