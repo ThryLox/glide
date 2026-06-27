@@ -37,7 +37,7 @@ impl Default for GlideGuiApp {
         Self {
             machine_name: "Kali-Linux".to_string(),
             target_ip: "100.119.208.55".to_string(),
-            screen_pos: ScreenPosition::Left,
+            screen_pos: ScreenPosition::Right,
             connected: false,
             clipboard_sync: true,
             file_transfer_enabled: true,
@@ -58,73 +58,6 @@ impl eframe::App for GlideGuiApp {
                 self.active_stream.store(false, Ordering::SeqCst);
             }
         });
-
-        if self.connected {
-            let target_str = format!("{}:24800", self.target_ip.trim());
-            if let Ok(addr) = target_str.parse::<SocketAddr>() {
-                // Pointer motion tracking
-                if let Some(current_pos) = ctx.pointer_latest_pos() {
-                    if let Some(last_pos) = self.last_mouse_pos {
-                        let dx = (current_pos.x - last_pos.x) as i32;
-                        let dy = (current_pos.y - last_pos.y) as i32;
-                        if dx != 0 || dy != 0 {
-                            let counter = self.packet_counter.clone();
-                            self.runtime.spawn(async move {
-                                if let Ok(socket) = UdpSocket::bind("0.0.0.0:0").await {
-                                    let event = InputEvent::MouseMove { x: dx, y: dy };
-                                    if let Ok(bytes) = bincode::serialize(&event) {
-                                        if socket.send_to(&bytes, addr).await.is_ok() {
-                                            counter.fetch_add(1, Ordering::SeqCst);
-                                        }
-                                    }
-                                }
-                            });
-                        }
-                    }
-                    self.last_mouse_pos = Some(current_pos);
-                }
-
-                // Track left, right, and middle mouse button clicks & dragging
-                ctx.input(|i| {
-                    let mut send_btn = |btn: u8, pressed: bool| {
-                        let counter = self.packet_counter.clone();
-                        self.runtime.spawn(async move {
-                            if let Ok(socket) = UdpSocket::bind("0.0.0.0:0").await {
-                                let event = InputEvent::MouseButton { button: btn, pressed };
-                                if let Ok(bytes) = bincode::serialize(&event) {
-                                    if socket.send_to(&bytes, addr).await.is_ok() {
-                                        counter.fetch_add(1, Ordering::SeqCst);
-                                    }
-                                }
-                            }
-                        });
-                    };
-
-                    if i.pointer.primary_pressed() { send_btn(1, true); }
-                    if i.pointer.primary_released() { send_btn(1, false); }
-                    if i.pointer.secondary_pressed() { send_btn(3, true); }
-                    if i.pointer.secondary_released() { send_btn(3, false); }
-                    if i.pointer.button_pressed(egui::PointerButton::Middle) { send_btn(2, true); }
-                    if i.pointer.button_released(egui::PointerButton::Middle) { send_btn(2, false); }
-
-                    // Track scroll wheel events
-                    let scroll_delta = i.raw_scroll_delta;
-                    if scroll_delta.y != 0.0 {
-                        let counter = self.packet_counter.clone();
-                        self.runtime.spawn(async move {
-                            if let Ok(socket) = UdpSocket::bind("0.0.0.0:0").await {
-                                let event = InputEvent::Scroll { delta_x: scroll_delta.x, delta_y: scroll_delta.y };
-                                if let Ok(bytes) = bincode::serialize(&event) {
-                                    if socket.send_to(&bytes, addr).await.is_ok() {
-                                        counter.fetch_add(1, Ordering::SeqCst);
-                                    }
-                                }
-                            }
-                        });
-                    }
-                });
-            }
-        }
 
         egui::CentralPanel::default().show(ctx, |ui| {
             ui.heading("⚡ glide-kvm Dashboard");
@@ -157,7 +90,7 @@ impl eframe::App for GlideGuiApp {
                         self.active_stream.store(true, Ordering::SeqCst);
                         self.packet_counter.store(0, Ordering::SeqCst);
 
-                        // Spawn system-wide global OS input capture & panic hotkey listener thread
+                        // Spawn system-wide global OS input capture & keyboard routing thread
                         #[cfg(not(target_os = "linux"))]
                         {
                             let target_str = format!("{}:24800", self.target_ip.trim());
@@ -174,6 +107,24 @@ impl eframe::App for GlideGuiApp {
                                         match event.event_type {
                                             EventType::KeyPress(Key::Escape) => {
                                                 active_flag.store(false, Ordering::SeqCst);
+                                            }
+                                            EventType::KeyPress(k) => {
+                                                let key_code = format!("{:?}", k).len() as u32;
+                                                let ev = InputEvent::KeyPress { key_code, pressed: true };
+                                                if let Ok(bytes) = bincode::serialize(&ev) {
+                                                    if let Ok(sock) = std::net::UdpSocket::bind("0.0.0.0:0") {
+                                                        let _ = sock.send_to(&bytes, addr);
+                                                    }
+                                                }
+                                            }
+                                            EventType::KeyRelease(k) => {
+                                                let key_code = format!("{:?}", k).len() as u32;
+                                                let ev = InputEvent::KeyPress { key_code, pressed: false };
+                                                if let Ok(bytes) = bincode::serialize(&ev) {
+                                                    if let Ok(sock) = std::net::UdpSocket::bind("0.0.0.0:0") {
+                                                        let _ = sock.send_to(&bytes, addr);
+                                                    }
+                                                }
                                             }
                                             EventType::ButtonPress(btn) => {
                                                 let button_id = match btn {
