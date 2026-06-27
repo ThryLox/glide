@@ -286,11 +286,13 @@ impl GlideGuiApp {
                         let anchor_y = cy.get();
 
                         // ── Detect and discard our own synthetic warp event ───
-                        // Compare within 2px tolerance to account for float rounding
+                        // Compare within 2px tolerance to account for float rounding.
+                        // Return Some(event) so Windows ACTUALLY moves the cursor to center —
+                        // without this the cursor never reaches the anchor and all deltas are wrong.
                         if pwx >= 0.0 && (x - pwx).abs() < 2.0 && (y - pwy).abs() < 2.0 {
                             pending_warp_x.set(-1.0);
                             pending_warp_y.set(-1.0);
-                            return None; // This was our warp, discard it
+                            return Some(event); // Let Windows move cursor to anchor, but don't process as real move
                         }
 
                         if on_remote {
