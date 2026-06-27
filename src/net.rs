@@ -1,15 +1,13 @@
 use std::net::SocketAddr;
 use tokio::net::UdpSocket;
 use anyhow::Result;
-use tracing::info;
+use tracing::{info, error};
 use crate::protocol::InputEvent;
 
-#[allow(dead_code)]
 pub struct NetworkEngine {
     socket: UdpSocket,
 }
 
-#[allow(dead_code)]
 impl NetworkEngine {
     pub async fn bind(addr: &str) -> Result<Self> {
         let socket = UdpSocket::bind(addr).await?;
@@ -23,10 +21,20 @@ impl NetworkEngine {
         Ok(())
     }
 
-    pub async fn receive_event(&self) -> Result<(InputEvent, SocketAddr)> {
+    pub async fn run_server_loop(self) -> Result<()> {
         let mut buf = [0u8; 1024];
-        let (len, addr) = self.socket.recv_from(&mut buf).await?;
-        let event: InputEvent = bincode::deserialize(&buf[..len])?;
-        Ok((event, addr))
+        info!("Server listening for active input events...");
+        loop {
+            match self.socket.recv_from(&mut buf).await {
+                Ok((len, addr)) => {
+                    if let Ok(event) = bincode::deserialize::<InputEvent>(&buf[..len]) {
+                        info!("Received input event from {}: {:?}", addr, event);
+                    }
+                }
+                Err(e) => {
+                    error!("UDP socket error: {}", e);
+                }
+            }
+        }
     }
 }

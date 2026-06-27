@@ -5,6 +5,7 @@ mod gui;
 
 use clap::Parser;
 use tracing::info;
+use net::NetworkEngine;
 
 #[derive(Parser, Debug)]
 #[command(author, version, about = "Ultra-low latency Rust Software KVM", long_about = None)]
@@ -38,9 +39,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     if args.install_service {
         #[cfg(target_os = "linux")]
         {
-            use std::fs;
-            use std::process::Command;
-
             info!("Installing glide-kvm systemd background service...");
             let service_content = format!(r#"[Unit]
 Description=glide-kvm Ultra-Low Latency Background Service
@@ -91,9 +89,8 @@ WantedBy=multi-user.target
         }
     } else {
         info!("Running in headless background server mode on port 24800...");
-        // Keep main thread alive in background server mode
-        tokio::signal::ctrl_c().await?;
-        info!("Shutdown signal received, exiting glide-kvm.");
+        let net_engine = NetworkEngine::bind("0.0.0.0:24800").await?;
+        net_engine.run_server_loop().await?;
     }
 
     Ok(())
