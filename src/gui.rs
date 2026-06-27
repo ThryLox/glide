@@ -163,19 +163,26 @@ impl eframe::App for GlideGuiApp {
                                 let active_flag = self.active_stream.clone();
                                 let counter = self.packet_counter.clone();
                                 std::thread::spawn(move || {
+                                    let mut last_x = 0.0;
+                                    let mut last_y = 0.0;
                                     let callback = move |event: Event| {
                                         if !active_flag.load(Ordering::SeqCst) {
                                             return;
                                         }
                                         match event.event_type {
                                             EventType::MouseMove { x, y } => {
-                                                // Global system-wide mouse capture delta
-                                                let ev = InputEvent::MouseMove { x: x as i32, y: y as i32 };
-                                                if let Ok(bytes) = bincode::serialize(&ev) {
-                                                    let socket = std::net::UdpSocket::bind("0.0.0.0:0");
-                                                    if let Ok(sock) = socket {
-                                                        let _ = sock.send_to(&bytes, addr);
-                                                        counter.fetch_add(1, Ordering::SeqCst);
+                                                let dx = (x - last_x) as i32;
+                                                let dy = (y - last_y) as i32;
+                                                last_x = x;
+                                                last_y = y;
+
+                                                if dx != 0 || dy != 0 {
+                                                    let ev = InputEvent::MouseMove { x: dx, y: dy };
+                                                    if let Ok(bytes) = bincode::serialize(&ev) {
+                                                        if let Ok(sock) = std::net::UdpSocket::bind("0.0.0.0:0") {
+                                                            let _ = sock.send_to(&bytes, addr);
+                                                            counter.fetch_add(1, Ordering::SeqCst);
+                                                        }
                                                     }
                                                 }
                                             }
