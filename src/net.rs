@@ -4,6 +4,9 @@ use anyhow::Result;
 use tracing::{info, error};
 use crate::protocol::InputEvent;
 
+#[cfg(target_os = "linux")]
+use std::process::Command;
+
 pub struct NetworkEngine {
     socket: UdpSocket,
 }
@@ -29,11 +32,42 @@ impl NetworkEngine {
                 Ok((len, addr)) => {
                     if let Ok(event) = bincode::deserialize::<InputEvent>(&buf[..len]) {
                         info!("Received input event from {}: {:?}", addr, event);
+                        Self::simulate_os_input(&event);
                     }
                 }
                 Err(e) => {
                     error!("UDP socket error: {}", e);
                 }
+            }
+        }
+    }
+
+    fn simulate_os_input(event: &InputEvent) {
+        #[cfg(target_os = "linux")]
+        {
+            match event {
+                InputEvent::MouseMove { x, y } => {
+                    // Simulate mouse movement on Linux screen using xdotool
+                    let _ = Command::new("xdotool")
+                        .env("DISPLAY", ":0")
+                        .args(["mousemove_relative", "--", &x.to_string(), &y.to_string()])
+                        .spawn();
+                }
+                InputEvent::MouseButton { button, pressed } => {
+                    let action = if *pressed { "mousedown" } else { "mouseup" };
+                    let _ = Command::new("xdotool")
+                        .env("DISPLAY", ":0")
+                        .args([action, &button.to_string()])
+                        .spawn();
+                }
+                InputEvent::KeyPress { key_code, pressed } => {
+                    let action = if *pressed { "keydown" } else { "keyup" };
+                    let _ = Command::new("xdotool")
+                        .env("DISPLAY", ":0")
+                        .args([action, &key_code.to_string()])
+                        .spawn();
+                }
+                _ => {}
             }
         }
     }
