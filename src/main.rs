@@ -10,7 +10,7 @@ use net::NetworkEngine;
 #[derive(Parser, Debug)]
 #[command(author, version, about = "Ultra-low latency Rust Software KVM", long_about = None)]
 struct Args {
-    /// Launch the interactive GUI dashboard
+    /// Launch the interactive GUI dashboard (Default behavior when double-clicked)
     #[arg(short, long)]
     gui: bool,
 
@@ -82,8 +82,9 @@ WantedBy=multi-user.target
 
     info!("Starting glide-kvm v{}", env!("CARGO_PKG_VERSION"));
 
-    // If --gui is explicitly requested AND --server is not set, launch GUI
-    if args.gui && !args.server {
+    // Default Behavior: If --server is NOT explicitly requested, default to GUI desktop app mode!
+    if !args.server {
+        info!("Launching persistent desktop GUI application...");
         if let Err(e) = gui::run_gui() {
             eprintln!("GUI Error: {}", e);
         }
