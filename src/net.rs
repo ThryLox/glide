@@ -25,16 +25,19 @@ lazy_static::lazy_static! {
         rel_axes.insert(RelativeAxisType::REL_X);
         rel_axes.insert(RelativeAxisType::REL_Y);
 
-        let dev = VirtualDeviceBuilder::new()
-            .unwrap()
-            .name("glide-kvm Virtual Mouse")
-            .with_keys(&keys)
-            .unwrap()
-            .with_relative_axes(&rel_axes)
-            .unwrap()
-            .build();
+        let dev = match VirtualDeviceBuilder::new() {
+            Ok(builder) => builder
+                .name("glide-kvm Virtual Mouse")
+                .with_keys(&keys)
+                .unwrap_or(builder)
+                .with_relative_axes(&rel_axes)
+                .unwrap_or(builder)
+                .build()
+                .ok(),
+            Err(_) => None,
+        };
         
-        Mutex::new(dev.ok())
+        Mutex::new(dev)
     };
 }
 
