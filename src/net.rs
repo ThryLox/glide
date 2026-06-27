@@ -28,9 +28,6 @@ impl NetworkEngine {
     pub async fn run_server_loop(self) -> Result<()> {
         let mut buf = [0u8; 1024];
         info!("Server listening for active input events...");
-        
-        #[cfg(target_os = "linux")]
-        Self::prepare_linux_display();
 
         loop {
             match self.socket.recv_from(&mut buf).await {
@@ -47,26 +44,6 @@ impl NetworkEngine {
         }
     }
 
-    fn prepare_linux_display() {
-        #[cfg(target_os = "linux")]
-        {
-            let display = std::env::var("DISPLAY").unwrap_or_else(|_| ":0".to_string());
-            let xauth = std::env::var("XAUTHORITY").unwrap_or_else(|_| "/home/thrylox/.Xauthority".to_string());
-            
-            let _ = Command::new("xhost")
-                .env("DISPLAY", &display)
-                .env("XAUTHORITY", &xauth)
-                .args(["+local:"])
-                .spawn();
-
-            let _ = Command::new("xset")
-                .env("DISPLAY", &display)
-                .env("XAUTHORITY", &xauth)
-                .args(["dpms", "force", "on"])
-                .spawn();
-        }
-    }
-
     fn simulate_os_input(event: &InputEvent) {
         #[cfg(target_os = "linux")]
         {
@@ -79,13 +56,6 @@ impl NetworkEngine {
                     "/run/user/1000/gdm/Xauthority".to_string()
                 }
             });
-
-            // Trigger monitor wake-up call
-            let _ = Command::new("xset")
-                .env("DISPLAY", &display)
-                .env("XAUTHORITY", &xauth)
-                .args(["dpms", "force", "on"])
-                .spawn();
 
             match event {
                 InputEvent::MouseMove { x, y } => {
