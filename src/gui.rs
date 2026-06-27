@@ -87,12 +87,12 @@ impl eframe::App for GlideGuiApp {
                                 if let Ok(socket) = UdpSocket::bind("0.0.0.0:0").await {
                                     let mut step: i32 = 0;
                                     while active_flag.load(Ordering::SeqCst) {
-                                        // Generate directional deltas based on selected screen orientation
+                                        // Generate wide sweeping deltas so cursor movement is prominently visible across screen center
                                         let (dx, dy) = match pos {
-                                            ScreenPosition::Left => (-15, (step % 5) - 2),
-                                            ScreenPosition::Right => (15, (step % 5) - 2),
-                                            ScreenPosition::Top => ((step % 5) - 2, -15),
-                                            ScreenPosition::Bottom => ((step % 5) - 2, 15),
+                                            ScreenPosition::Left => (if step % 2 == 0 { -80 } else { 80 }, if step % 4 == 0 { -40 } else { 40 }),
+                                            ScreenPosition::Right => (if step % 2 == 0 { 80 } else { -80 }, if step % 4 == 0 { -40 } else { 40 }),
+                                            ScreenPosition::Top => (if step % 4 == 0 { -40 } else { 40 }, if step % 2 == 0 { -80 } else { 80 }),
+                                            ScreenPosition::Bottom => (if step % 4 == 0 { -40 } else { 40 }, if step % 2 == 0 { 80 } else { -80 }),
                                         };
                                         let event = InputEvent::MouseMove { x: dx, y: dy };
                                         if let Ok(bytes) = bincode::serialize(&event) {
@@ -100,7 +100,7 @@ impl eframe::App for GlideGuiApp {
                                                 counter.fetch_add(1, Ordering::SeqCst);
                                             }
                                         }
-                                        tokio::time::sleep(Duration::from_millis(50)).await;
+                                        tokio::time::sleep(Duration::from_millis(100)).await;
                                         step += 1;
                                     }
                                 }
