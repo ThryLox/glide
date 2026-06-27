@@ -3,9 +3,9 @@ use std::sync::atomic::{AtomicBool, AtomicI32, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
-
+#[cfg(not(target_os = "linux"))]
 use rdev::{grab, simulate, Event, EventType, Key, Button};
-
+#[cfg(not(target_os = "linux"))]
 use std::cell::Cell;
 
 #[derive(PartialEq, Clone, Copy, Debug)]
@@ -53,7 +53,7 @@ impl Default for GlideGuiApp {
 }
 
 /// Map rdev Key to an xdotool-compatible key name string
-
+#[cfg(not(target_os = "linux"))]
 fn key_to_xdotool(k: &Key) -> Option<String> {
     let name = match k {
         Key::KeyA => "a", Key::KeyB => "b", Key::KeyC => "c", Key::KeyD => "d",
@@ -156,55 +156,54 @@ impl eframe::App for GlideGuiApp {
                     self.kvm_state.on_remote.store(false, Ordering::SeqCst);
                 }
             } else if ui.button("🟢 Connect & Start Glide").clicked() {
-                        self.connected = true;
-                        self.active_stream.store(true, Ordering::SeqCst);
-                        self.packet_counter.store(0, Ordering::SeqCst);
+                self.connected = true;
+                self.active_stream.store(true, Ordering::SeqCst);
+                self.packet_counter.store(0, Ordering::SeqCst);
 
-                        // Send SetLayout so Kali knows which edge to watch for return
-                        
-                        {
-                            let side: u8 = match self.screen_pos {
-                                ScreenPosition::Right  => 0,
-                                ScreenPosition::Left   => 1,
-                                ScreenPosition::Top    => 2,
-                                ScreenPosition::Bottom => 3,
-                            };
-                            let target_str = format!("{}:24800", self.target_ip.trim());
-                            if let Ok(addr) = target_str.parse::<std::net::SocketAddr>() {
-                                let ev = crate::protocol::InputEvent::SetLayout { side };
-                                if let Ok(bytes) = bincode::serialize(&ev) {
-                                    if let Ok(sock) = std::net::UdpSocket::bind("0.0.0.0:0") {
-                                        let _ = sock.send_to(&bytes, addr);
-                                    }
+                // Send SetLayout so Kali knows which edge to watch for return
+                #[cfg(not(target_os = "linux"))]
+                {
+                    let side: u8 = match self.screen_pos {
+                        ScreenPosition::Right  => 0,
+                        ScreenPosition::Left   => 1,
+                        ScreenPosition::Top    => 2,
+                        ScreenPosition::Bottom => 3,
+                    };
+                    let target_str = format!("{}:24800", self.target_ip.trim());
+                    if let Ok(addr) = target_str.parse::<std::net::SocketAddr>() {
+                        let ev = crate::protocol::InputEvent::SetLayout { side };
+                        if let Ok(bytes) = bincode::serialize(&ev) {
+                            if let Ok(sock) = std::net::UdpSocket::bind("0.0.0.0:0") {
+                                let _ = sock.send_to(&bytes, addr);
+                            }
+                        }
+                    }
+                }
+
+                // Spawn ReturnToHost listener on port 24801
+                #[cfg(not(target_os = "linux"))]
+                {
+                    let kvm_ret    = self.kvm_state.clone();
+                    let active_ret = self.active_stream.clone();
+                    std::thread::spawn(move || {
+                        let Ok(sock) = std::net::UdpSocket::bind("0.0.0.0:24801") else { return; };
+                        let mut buf = [0u8; 256];
+                        loop {
+                            if !active_ret.load(Ordering::SeqCst) { break; }
+                            if let Ok((len, _)) = sock.recv_from(&mut buf) {
+                                if let Ok(crate::protocol::InputEvent::ReturnToHost) =
+                                    bincode::deserialize::<crate::protocol::InputEvent>(&buf[..len])
+                                {
+                                    kvm_ret.on_remote.store(false, Ordering::SeqCst);
                                 }
                             }
                         }
+                    });
+                }
 
-                        // Spawn ReturnToHost listener on port 24801
-                        // When Kali cursor hits its return edge it sends here
-                        
-                        {
-                            let kvm_ret    = self.kvm_state.clone();
-                            let active_ret = self.active_stream.clone();
-                            std::thread::spawn(move || {
-                                let Ok(sock) = std::net::UdpSocket::bind("0.0.0.0:24801") else { return; };
-                                let mut buf = [0u8; 256];
-                                loop {
-                                    if !active_ret.load(Ordering::SeqCst) { break; }
-                                    if let Ok((len, _)) = sock.recv_from(&mut buf) {
-                                        if let Ok(crate::protocol::InputEvent::ReturnToHost) =
-                                            bincode::deserialize::<crate::protocol::InputEvent>(&buf[..len])
-                                        {
-                                            kvm_ret.on_remote.store(false, Ordering::SeqCst);
-                                        }
-                                    }
-                                }
-                            });
-                        }
-
-                        
-                        self.start_grab_thread();
-                    }
+                #[cfg(not(target_os = "linux"))]
+                self.start_grab_thread();
+            }
 
             ui.separator();
             ui.heading("⚙️ Settings");
@@ -231,7 +230,7 @@ impl eframe::App for GlideGuiApp {
 }
 
 impl GlideGuiApp {
-    
+    #[cfg(not(target_os = "linux"))]
     fn start_grab_thread(&self) {
         let target_str = format!("{}:24800", self.target_ip.trim());
         let Ok(addr) = target_str.parse::<std::net::SocketAddr>() else { return; };
@@ -242,7 +241,6 @@ impl GlideGuiApp {
         let screen_pos  = self.screen_pos;
 
         std::thread::spawn(move || {
-            // One persistent UDP socket reused for all packets — eliminates per-event socket overhead
             let socket = match std::net::UdpSocket::bind("0.0.0.0:0") {
                 Ok(s) => Arc::new(s),
                 Err(_) => return,
@@ -264,13 +262,9 @@ impl GlideGuiApp {
             let cx: Cell<f64> = Cell::new(sw / 2.0);
             let cy: Cell<f64> = Cell::new(sh / 2.0);
 
-            // pending_warp: coordinate of synthetic warp we fired.
-            // Matching event is passed through (Some) so cursor actually moves, but state
-            // machine skips processing it as a real move.
             let pending_warp_x: Cell<f64> = Cell::new(-1.0);
             let pending_warp_y: Cell<f64> = Cell::new(-1.0);
 
-            // Modifier key tracking for Ctrl+Alt+G hotkey
             let ctrl_held:  Cell<bool> = Cell::new(false);
             let alt_held:   Cell<bool> = Cell::new(false);
 
@@ -293,7 +287,6 @@ impl GlideGuiApp {
 
                 match &event.event_type {
 
-                    // ── Modifier tracking ────────────────────────────────────
                     EventType::KeyPress(Key::ControlLeft) | EventType::KeyPress(Key::ControlRight) => {
                         ctrl_held.set(true);
                         if on_remote { send_event(&crate::protocol::InputEvent::KeyName { name: "ctrl".into(), pressed: true }); return None; }
@@ -315,32 +308,26 @@ impl GlideGuiApp {
                         return Some(event);
                     }
 
-                    // ── KVM Switch Hotkeys ───────────────────────────────────
-                    // Scroll Lock: toggle focus Laptop ↔ Kali (classic KVM key)
                     EventType::KeyPress(Key::ScrollLock) => {
                         let now_remote = !on_remote;
                         kvm.on_remote.store(now_remote, Ordering::SeqCst);
                         if now_remote {
-                            // Switching TO Kali: warp cursor to center so deltas start clean
                             do_warp(anchor_x, anchor_y, &pending_warp_x, &pending_warp_y);
                         }
-                        return None; // Never pass Scroll Lock through to either OS
+                        return None;
                     }
 
-                    // Ctrl+Alt+G: switch TO Kali
                     EventType::KeyPress(Key::KeyG) if ctrl_held.get() && alt_held.get() => {
                         kvm.on_remote.store(true, Ordering::SeqCst);
                         do_warp(anchor_x, anchor_y, &pending_warp_x, &pending_warp_y);
                         return None;
                     }
 
-                    // ── Emergency escape: always return to Laptop ────────────
                     EventType::KeyPress(Key::Escape) if ctrl_held.get() => {
                         kvm.on_remote.store(false, Ordering::SeqCst);
                         return Some(event);
                     }
 
-                    // ── Keyboard: route to Kali when remote ─────────────────
                     EventType::KeyPress(k) => {
                         if on_remote {
                             if let Some(name) = key_to_xdotool(k) {
@@ -360,7 +347,6 @@ impl GlideGuiApp {
                         return Some(event);
                     }
 
-                    // ── Mouse buttons: route to Kali when remote ─────────────
                     EventType::ButtonPress(btn) => {
                         if on_remote {
                             let b = match btn { Button::Left => 1, Button::Middle => 2, Button::Right => 3, _ => 1 };
@@ -378,15 +364,12 @@ impl GlideGuiApp {
                         return Some(event);
                     }
 
-                    // ── Mouse movement ────────────────────────────────────────
                     EventType::MouseMove { x, y } => {
                         let x = *x;
                         let y = *y;
                         let pwx = pending_warp_x.get();
                         let pwy = pending_warp_y.get();
 
-                        // Our synthetic warp arriving — let Windows process it (moves cursor
-                        // to anchor) but skip it in our state machine
                         if pwx >= 0.0 && (x - pwx).abs() < 2.0 && (y - pwy).abs() < 2.0 {
                             pending_warp_x.set(-1.0);
                             pending_warp_y.set(-1.0);
@@ -394,11 +377,9 @@ impl GlideGuiApp {
                         }
 
                         if on_remote {
-                            // Delta from warp anchor (screen center)
                             let dx = (x - anchor_x) as i32;
                             let dy = (y - anchor_y) as i32;
 
-                            // Return to laptop: strong push back past the return boundary
                             let return_triggered = match screen_pos {
                                 ScreenPosition::Right  => dx < -60,
                                 ScreenPosition::Left   => dx >  60,
@@ -412,17 +393,14 @@ impl GlideGuiApp {
                                 return None;
                             }
 
-                            // Stream delta to Kali
                             if dx != 0 || dy != 0 {
                                 send_event(&crate::protocol::InputEvent::MouseMove { x: dx, y: dy });
                             }
 
-                            // Warp back to anchor for fresh deltas next event
                             do_warp(anchor_x, anchor_y, &pending_warp_x, &pending_warp_y);
                             return None;
 
                         } else {
-                            // Update anchor if screen size changed
                             cx.set(sw / 2.0);
                             cy.set(sh / 2.0);
 
