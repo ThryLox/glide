@@ -99,6 +99,14 @@ impl NetworkEngine {
                         .args(["mousemove_relative", "--", &x.to_string(), &y.to_string()])
                         .spawn();
                 }
+                InputEvent::MouseMoveAbsolute { x, y } => {
+                    let display = std::env::var("DISPLAY").unwrap_or_else(|_| ":0".to_string());
+                    let _ = Command::new("xdotool")
+                        .env("DISPLAY", &display)
+                        .env("XAUTHORITY", "/run/user/1000/.mutter-Xwaylandauth.4QFTR3")
+                        .args(["mousemove", &x.to_string(), &y.to_string()])
+                        .spawn();
+                }
                 InputEvent::MouseButton { button, pressed } => {
                     if let Ok(mut guard) = VIRTUAL_MOUSE.lock() {
                         if let Some(ref mut dev) = *guard {

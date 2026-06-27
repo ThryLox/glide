@@ -4,6 +4,7 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum InputEvent {
     MouseMove { x: i32, y: i32 },
+    MouseMoveAbsolute { x: i32, y: i32 },
     MouseButton { button: u8, pressed: bool },
     KeyPress { key_code: u32, pressed: bool },
     Scroll { delta_x: f32, delta_y: f32 },
